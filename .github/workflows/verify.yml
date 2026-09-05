@@ -9,10 +9,13 @@ on:
     - cron: "17 3 * * 1"
   workflow_dispatch:
 
+# permissions 一写就变白名单：没列的范围全部变 none。
+# actions: read 是下载产物需要的 —— 上一轮就是因为没给它，报告里一份产物都没有。
 permissions:
   contents: write
   pull-requests: write
   issues: write
+  actions: read
 
 concurrency:
   group: verify-${{ github.ref }}
@@ -23,6 +26,8 @@ jobs:
     name: 快闸门
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,6 +38,7 @@ jobs:
           rustfmt --version
       # 闸门那步允许失败继续，否则报告传不回来；最后再用单独一步让 job 真的失败。
       - name: Run gate
+        id: gate
         continue-on-error: true
         run: bash scripts/verify.sh
       - name: Upload gate evidence
@@ -45,6 +51,10 @@ jobs:
             gate-result.txt
             gate-metrics.txt
           if-no-files-found: warn
+      # 不是断言，只是把原始输出搬到我读得到的通道上。放在最终判定之前。
+      - name: Post raw fast-gate log
+        if: always()
+        run: bash scripts/raw-log.sh "快闸门原始输出" 2 gate.log gate-result.txt
       - name: Fail after evidence is uploaded
         if: always()
         run: |
@@ -55,16 +65,21 @@ jobs:
     name: 慢闸门 ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             probe: true
+            marker_line: 3
           - os: macos-latest
             probe: false
+            marker_line: 4
           - os: windows-latest
             probe: false
+            marker_line: 5
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,7 +93,10 @@ jobs:
             libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             pkg-config xvfb mesa-utils fonts-droid-fallback
       - name: Build release binaries
-        run: cargo build --release --workspace
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: cargo build --release --workspace > build.log 2>&1
       - name: Upload executables
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -90,15 +108,15 @@ jobs:
           if-no-files-found: warn
 
       - name: Screenshot checker selftest
-        if: matrix.probe
+        if: matrix.probe && steps.build.outcome == 'success'
         run: ./target/release/yi-shotcheck --selftest
 
       - name: Fixtures
-        if: matrix.probe
+        if: matrix.probe && steps.build.outcome == 'success'
         run: |
           mkdir -p shots
           cat > sample.rs <<'EOF'
-          //! Yi Edit 高亮样例 / highlight sample
+          //! Yi Edit highlight sample
           use std::collections::HashMap;
 
           /// 中文注释：这一行用来验证字体回退。
@@ -110,11 +128,11 @@ jobs:
               }
               /* 块注释
                  跨行 */
-              println!("{counts:?} {} {}", 0xff_u8, 3.14);
+              let _ = (0xff_u8, 3.14, counts.len());
           }
           EOF
           python3 - <<'EOF'
-          line = "fn generated(x: usize) -> usize { let s = \"needle\"; x * 3 }\n"
+          line = 'fn generated(x: usize) -> usize { let s = "needle"; x * 3 }\n'
           target = 70 * 1024 * 1024
           with open("big.rs", "w") as f:
               n = 0
@@ -124,7 +142,7 @@ jobs:
           EOF
           ls -l sample.rs big.rs
       - name: Screenshot small file
-        if: matrix.probe
+        if: matrix.probe && steps.build.outcome == 'success'
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           WINIT_UNIX_BACKEND: x11
@@ -134,7 +152,7 @@ jobs:
           xvfb-run -a --server-args="-screen 0 1280x800x24" \
             ./target/release/yi-edit sample.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
       - name: Screenshot huge file
-        if: matrix.probe
+        if: matrix.probe && steps.build.outcome == 'success'
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           WINIT_UNIX_BACKEND: x11
@@ -144,19 +162,20 @@ jobs:
           xvfb-run -a --server-args="-screen 0 1280x800x24" \
             ./target/release/yi-edit big.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
       - name: Check screenshots
-        if: matrix.probe
+        id: shots
+        continue-on-error: true
+        if: matrix.probe && steps.build.outcome == 'success'
         run: |
           ls -l shots || true
-          ./target/release/yi-shotcheck shots/small.png shots/huge.png > shotcheck.txt 2>&1 || {
-            cat shotcheck.txt
-            exit 1
-          }
+          ./target/release/yi-shotcheck shots/small.png shots/huge.png > shotcheck.txt 2>&1
           cat shotcheck.txt
       - name: Benchmark
-        if: matrix.probe
+        id: bench
+        continue-on-error: true
+        if: matrix.probe && steps.build.outcome == 'success'
         env:
           YI_EDIT_BENCH_MB: "64"
-        run: ./target/release/yi-edit-bench
+        run: ./target/release/yi-edit-bench > bench-run.txt 2>&1
       - name: Upload heavy evidence
         if: always() && matrix.probe
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -166,8 +185,28 @@ jobs:
             shots
             shotcheck.txt
             bench-result.txt
+            bench-run.txt
             app-run.txt
+            build.log
           if-no-files-found: warn
+      # 每个平台一个 marker：三个平台共用一个的话，后面的会把前面的盖掉，
+      # 而覆盖的表现是「那条日志本来就不存在」。
+      - name: Post raw slow-gate log
+        if: always()
+        shell: bash
+        run: |
+          bash scripts/raw-log.sh "慢闸门原始输出 ${{ matrix.os }}" ${{ matrix.marker_line }} \
+            build.log app-run.txt shotcheck.txt bench-run.txt
+      - name: Fail if any probe step failed
+        if: always()
+        shell: bash
+        run: |
+          echo "build=${{ steps.build.outcome }} shots=${{ steps.shots.outcome }} bench=${{ steps.bench.outcome }}"
+          test "${{ steps.build.outcome }}" = success
+          if [ "${{ matrix.probe }}" = "true" ]; then
+            test "${{ steps.shots.outcome }}" = success
+            test "${{ steps.bench.outcome }}" = success
+          fi
 
   report:
     name: 回写报告
@@ -198,11 +237,11 @@ jobs:
             echo
             echo "富文本版本就会盖掉这条；如果你看到的是这一条，说明报告拼接那一步挂了。"
           } > gate-report-min.md
-          bash scripts/report.sh gate-report-min.md
+          bash scripts/report.sh gate-report-min.md 1
       - name: Rich report
         run: |
           bash scripts/build-report.sh gate-report.md
-          bash scripts/report.sh gate-report.md
+          bash scripts/report.sh gate-report.md 1
       - name: Upload report body
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

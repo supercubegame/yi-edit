@@ -2,15 +2,24 @@
 # 把一份报告回写到我读得到的地方。两条通道：有 PR 写 PR 评论，没 PR 写提交评论。
 # 两条都有去重（只在一条上实现 marker 去重，生产里看不出来：每次推送都是新 SHA）。
 # 回写失败必须退非零：静默的回写失败与一切正常在面板上一模一样。
+#
+# 用法：report.sh <body.md> [marker 行号，默认 1]
+# 每一种报告占一个 marker（主报告 / 快闸门原始日志 / 每个平台的原始日志），
+# 否则它们会互相覆盖，而覆盖的表现是「那条日志本来就不存在」。
 set -Eeuo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
-BODY_FILE=${1:?用法: report.sh <body.md>}
+BODY_FILE=${1:?用法: report.sh <body.md> [marker 行号]}
+MARKER_LINE=${2:-1}
 # marker 只存一份（scripts/marker.txt）：两处必须逐字相同的字串不能拄两份，
 # 拄两份的失败方式是「去重失效但一切全绿」。
-MARKER=$(head -n 1 scripts/marker.txt)
+MARKER=$(sed -n "${MARKER_LINE}p" scripts/marker.txt)
+if [[ -z ${MARKER// /} ]]; then
+  echo "REPORT FAIL: marker.txt 第 $MARKER_LINE 行是空的" >&2
+  exit 1
+fi
 
 REPO=${GITHUB_REPOSITORY:?}
 SHA=${GITHUB_SHA:?}
@@ -36,18 +45,18 @@ try() {
 }
 
 pr=""
-if [[ -n ${GITHUB_EVENT_PATH:-} && -f ${GITHUB_EVENT_PATH:-} ]]; then
+if [[ -n ${GITHUB_EVENT_PATH:-} && -f ${GITHUB_EVENT_PATH:-} ]] && command -v jq > /dev/null 2>&1; then
   pr=$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH")
 fi
 if [[ -z $pr ]]; then
-  pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
+  pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[0].number // empty' 2> /dev/null || true)
 fi
 
 find_existing() {
   local list_path=$1
   gh api "$list_path" --paginate \
     --jq "[.[] | select(.body != null and (.body | contains(\"$MARKER\")))] | .[0].id // empty" \
-    2>/dev/null || true
+    2> /dev/null || true
 }
 
 if [[ -n $pr ]]; then
@@ -70,6 +79,7 @@ fi
 
 # 尝试次数要进报告：否则「一次就过」与「第三次才过」长得一模一样，
 # 上游在慢慢变差就看不见。
-printf 'report_channel=%s\nreport_attempts=%s\nreport_updated_existing=%s\n' \
-  "$channel" "$attempts" "$([[ -n $existing ]] && echo yes || echo no)" >> report-attempts.txt
-echo "REPORT: 已写入 $channel（尝试 $attempts 次，复用已有评论：$([[ -n $existing ]] && echo yes || echo no)）"
+printf 'marker_line=%s channel=%s attempts=%s updated_existing=%s\n' \
+  "$MARKER_LINE" "$channel" "$attempts" "$([[ -n $existing ]] && echo yes || echo no)" \
+  >> report-attempts.txt
+echo "REPORT: marker 行 $MARKER_LINE 已写入 $channel（尝试 $attempts 次）"

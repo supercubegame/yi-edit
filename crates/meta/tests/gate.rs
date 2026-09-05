@@ -1,6 +1,16 @@
 //! 闸门自己的断言。闸门坏了不会喊，所以得有东西盯着它。
 
+use std::collections::HashSet;
+
 use yi_edit_meta as meta;
+
+fn markers() -> Vec<String> {
+    meta::read("scripts/marker.txt")
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect()
+}
 
 /// 快闸门必须保持快：不能编 GUI。`--workspace` 会把 egui 拉进来，
 /// 一轮几分钟之后就没人愿意跑它了，而一个没人跑的闸门等于没有闸门。
@@ -8,41 +18,50 @@ use yi_edit_meta as meta;
 fn the_fast_gate_does_not_build_the_gui() {
     let sh = meta::read("scripts/verify.sh");
     assert!(sh.contains("-p yi-edit-core"), "快闸门没有按 crate 选择测试目标");
-    let code: Vec<&str> = sh
+    let joined: String = sh
         .lines()
         .filter(|l| !l.trim_start().starts_with('#'))
-        .collect();
-    let joined = code.join("\n");
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
         !joined.contains("cargo test --workspace"),
         "快闸门里出现了 cargo test --workspace，它会把 GUI 一起编"
     );
+    assert!(
+        !joined.contains("-p yi-edit "),
+        "快闸门里选了 GUI 那个包，同样会把 egui 拉进来"
+    );
 }
 
-/// marker 只能有一份真身。两个脚本各拄一份字面量的话，改一侧另一侧不会喊，
-/// 而表现是「去重失效、attest 找不到」—— 两种都很难从面板上看出来。
-/// 这里的负向断言（脚本里不得出现字面量）是承重的那一条。
+/// 每一种报告占一个 marker，且真身只在 marker.txt 里。
+/// 负向那条（脚本里不得出现字面量）是承重的：拄两份的失败方式是
+/// 「去重失效 / attest 找不到」，两种都很难从面板上看出来。
 #[test]
-fn the_marker_has_exactly_one_source_of_truth() {
-    let marker = meta::read("scripts/marker.txt");
-    let m = marker.lines().next().unwrap_or_default().to_string();
-    assert!(m.starts_with("<!--") && m.ends_with("-->"), "marker 不是一个 HTML 注释：{m:?}");
-    assert!(m.len() > 10, "marker 太短，容易误命中：{m:?}");
+fn every_marker_has_exactly_one_source_of_truth() {
+    let ms = markers();
+    assert!(ms.len() >= 5, "marker 只登记了 {} 个，不够每种报告一个", ms.len());
+    let uniq: HashSet<&String> = ms.iter().collect();
+    assert_eq!(uniq.len(), ms.len(), "marker 有重复，它们会互相覆盖：{ms:?}");
 
-    let core = m
-        .trim_start_matches("<!--")
-        .trim_end_matches("-->")
-        .trim()
-        .to_string();
-    for script in ["scripts/report.sh", "scripts/attest.sh"] {
-        let src = meta::read(script);
+    let scripts = ["scripts/report.sh", "scripts/attest.sh", "scripts/raw-log.sh"];
+    for s in scripts {
+        let src = meta::read(s);
+        for m in &ms {
+            let core = m
+                .trim_start_matches("<!--")
+                .trim_end_matches("-->")
+                .trim()
+                .to_string();
+            assert!(
+                !src.contains(&core),
+                "{s} 里硬编了 marker 字面量（{core}），真身就不止一份了"
+            );
+        }
+    }
+    for m in &ms {
         assert!(
-            src.contains("scripts/marker.txt"),
-            "{script} 没从 marker.txt 读，它在拄第二份"
-        );
-        assert!(
-            !src.contains(&core),
-            "{script} 里硬编了 marker 字面量（{core}），真身就不止一份了"
+            m.starts_with("<!--") && m.ends_with("-->") && m.len() > 10,
+            "marker 不是一个够长的 HTML 注释：{m:?}"
         );
     }
 }
@@ -90,6 +109,23 @@ fn the_fallback_report_is_posted_before_the_rich_one() {
     let rich = wf.find("report.sh gate-report.md").expect("没有富文本报告调用");
     assert!(min < rich, "富文本报告写在了兑底报告前面");
     assert!(wf.contains("scripts/attest.sh"), "没有送达核对，回写坏掉不会有人知道");
+}
+
+/// 每一条流水线、每一个平台，红了都要能把原始输出送到我读得到的地方。
+/// 上一轮就是在这里掉的：产物管道静默挂掉，手里只剩一个比特。
+#[test]
+fn every_platform_can_post_its_raw_log() {
+    let wf = meta::read(".github/workflows/verify.yml");
+    let n = wf.matches("scripts/raw-log.sh").count();
+    assert!(n >= 2, "只有 {n} 处调用了 raw-log.sh，快闸门与慢闸门都得有");
+    // 矩阵里每个平台一个 marker 行，否则三个平台的日志会互相覆盖。
+    for line in ["marker_line: 3", "marker_line: 4", "marker_line: 5"] {
+        assert!(wf.contains(line), "矩阵里缺了 {line}");
+    }
+    assert!(
+        wf.contains("actions: read"),
+        "permissions 里没给 actions: read，下载产物会静默挂掉（已经挂过一次）"
+    );
 }
 
 /// 慢闸门除了挂 push/PR，还得有一条定时：上游（egui / image / rustc）漂是

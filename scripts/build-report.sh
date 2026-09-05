@@ -25,6 +25,8 @@ emoji() {
   echo "| 快闸门（core/fileio/meta） | $(emoji "$gate_result") $gate_result |"
   echo "| 慢闸门（三平台构建 + 截图 + 基准） | $(emoji "$heavy_result") $heavy_result |"
   echo
+  echo "各平台的原始输出在单独的评论里（每个平台一条，不互相覆盖）。"
+  echo
 
   if [[ -f artifacts/gate-evidence/gate-result.txt ]]; then
     echo "### 快闸门"
@@ -37,14 +39,6 @@ emoji() {
     echo "本次没拿到快闸门的产物（不是「通过了」，是**未确认**）。"
   fi
   echo
-
-  if [[ -f artifacts/gate-evidence/gate.log ]] && [[ "$gate_result" != "success" ]]; then
-    echo "### 快闸门失败输出（尾 80 行）"
-    echo '```'
-    tail -n 80 artifacts/gate-evidence/gate.log
-    echo '```'
-    echo
-  fi
 
   echo "### 大文件基准实测值"
   if [[ -f artifacts/heavy-evidence/bench-result.txt ]]; then
@@ -65,26 +59,21 @@ emoji() {
   else
     echo "本次没拿到截图检查输出（未确认）。"
   fi
-  if [[ -f artifacts/heavy-evidence/app-run.txt ]]; then
-    echo
-    echo "<details><summary>截图运行日志（尾 40 行，包含字体选择）</summary>"
-    echo
-    echo '```'
-    tail -n 40 artifacts/heavy-evidence/app-run.txt
-    echo '```'
-    echo
-    echo "</details>"
-  fi
   echo
 
-  echo "### 三平台构建"
-  if [[ -f artifacts/build-matrix/results.txt ]]; then
-    echo '```'
-    cat artifacts/build-matrix/results.txt
-    echo '```'
+  # 产物管道自己会静默挂（已经挂过一次：permissions 里没给 actions: read）。
+  # 把它实际拿到了什么打印出来，否则「没产物」与「产物里没文件」分不开。
+  echo "<details><summary>产物目录实际内容（诊断用）</summary>"
+  echo
+  echo '```'
+  if [[ -d artifacts ]]; then
+    find artifacts -maxdepth 3 | head -n 60
   else
-    echo "构建结果看上面的慢闸门行（每个平台的产物在 Actions 页面的 artifacts 里）。"
+    echo "artifacts 目录不存在：下载产物那一步根本没拿到东西"
   fi
+  echo '```'
+  echo
+  echo "</details>"
 } > "$out"
 
 echo "已生成 $out（$(wc -l < "$out") 行）"
