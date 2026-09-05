@@ -1,25 +1,8 @@
 rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
 cargo 1.98.0 (797e8a9bc 2026-08-05)
-fmt_diff_before=107
+fmt_diff_before=0
 fmt_diff_after=0
-changed_files=35
- crates/meta/tests/gate.rs            |   5 +-
- crates/meta/tests/layering.rs        |  20 ++-
- crates/meta/tests/obligations.rs     |  10 +-
- crates/meta/tests/portable_shell.rs  |   5 +-
- crates/meta/tests/purity.rs          |   5 +-
- crates/meta/tests/registry.rs        |   5 +-
- crates/meta/tests/ui_layout.rs       |  20 +--
- crates/meta/tests/ui_saveas.rs       |  11 +-
- crates/session/src/fontpick.rs       |   9 +-
- crates/session/src/ime.rs            |  33 +++--
- crates/session/src/lib.rs            | 251 ++++++++++++++++++++++++++++-------
- crates/session/tests/browser.rs      |  11 +-
- crates/session/tests/ime.rs          |  30 ++++-
- crates/session/tests/jump.rs         |  21 ++-
- crates/session/tests/saveas.rs       |  58 ++++++--
- crates/session/tests/session.rs      |  41 +++++-
- crates/session/tests/status.rs       |  32 ++++-
- crates/session/tests/undo_session.rs |   5 +-
- crates/session/tests/undo_ux.rs      |  64 ++++++---
- 31 files changed, 749 insertions(+), 214 deletions(-)
+changed_files=2
+ fmt-before.txt | 1687 --------------------------------------------------------
+ fmt-run.txt    |   24 +-
+ 2 files changed, 2 insertions(+), 1709 deletions(-)
