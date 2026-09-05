@@ -21,7 +21,8 @@ pub const CHUNK_SIZE: usize = 4 * 1024 * 1024;
 pub const MAX_PATTERN_LEN: usize = 1024;
 
 /// 块之间保留的重叠字节数。
-pub const CHUNK_OVERLAP: usize = MAX_PATTERN_LEN - 1;
+/// M2：变异体——去掉了 -1。耦合等号断言应该抓住它。
+pub const CHUNK_OVERLAP: usize = MAX_PATTERN_LEN;
 
 /// 撤销栈上限。到顶之后丢最旧的一条（不是拒绝新编辑）。
 /// 注意：任何依赖「撤销到底能回到原文」的测试，夹具的操作数必须小于这个值，
