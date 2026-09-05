@@ -127,6 +127,8 @@ jobs:
         if: matrix.probe && steps.build.outcome == 'success'
         run: ./target/release/yi-shotcheck --selftest
 
+      # 夹具要能填满视口：上一版 sample.rs 只有十四行，800px 窗口里中下部本来就空，
+      # 于是中部带判红 —— 而那是对的，是夹具根本没压到「正文充满视口」这个情形。
       - name: Fixtures
         id: fixtures
         continue-on-error: true
@@ -134,7 +136,7 @@ jobs:
         run: |
           mkdir -p shots
           cat > sample.rs <<'EOF'
-          //! Yi Edit highlight sample
+          //! Yi Edit highlight sample —— 这份夹具要能把 800px 高的编辑区填满。
           use std::collections::HashMap;
 
           /// 中文注释：这一行用来验证字体回退。
@@ -150,6 +152,15 @@ jobs:
           }
           EOF
           python3 - <<'EOF'
+          # 再接 80 行真实感的代码，让正文从顶一直铺到底。
+          with open("sample.rs", "a") as f:
+              for i in range(80):
+                  f.write(f'\nfn helper{i}(x: usize) -> usize {{\n')
+                  f.write(f'    // needle 第 {i} 个辅助函数\n')
+                  f.write(f'    let v = vec![{i}, {i * 3}, {i * 7}];\n')
+                  f.write('    v.iter().sum::<usize>() + x\n}\n')
+          EOF
+          python3 - <<'EOF'
           line = 'fn generated(x: usize) -> usize { let s = "needle"; x * 3 }\n'
           target = 70 * 1024 * 1024
           with open("big.rs", "w") as f:
@@ -158,6 +169,7 @@ jobs:
                   f.write(line)
                   n += len(line)
           EOF
+          wc -l sample.rs
           ls -l sample.rs big.rs
       - name: Screenshot small file
         id: shot_small
@@ -183,9 +195,10 @@ jobs:
         run: |
           xvfb-run -a --server-args="-screen 0 1280x800x24" \
             ./target/release/yi-edit big.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
-      # 尺寸断言真的在守（1280x800 是实测值）。三条带对应三个区域：
-      # 底部（留白 bug）、顶部（工具栏）、中部（正文）。
-      # 颜色数下限 8 是**拍的**，只用来抓「这一条带是纯色的」，下一轮拿实测值收紧。
+      # 四条带对应四个区域。**底部拆成两条**：0.90..1.00 把状态栏（底部 26px
+      # = 0.9675..1.0）包进来了，于是即使编辑区底部空一大块，光靠状态栏的文字
+      # 就能让那条带变绿 —— 那就是一条会自己变绿的断言。
+      # 颜色数下限 8 只用来抓「这一条带是纯色的」；实测值见 docs/PITFALLS.md。
       - name: Check screenshots
         id: shots
         continue-on-error: true
@@ -193,7 +206,7 @@ jobs:
         run: |
           ls -l shots || true
           ./target/release/yi-shotcheck --size 1280x800 \
-            --band 0.90:1.00:8 --band 0.00:0.06:8 --band 0.40:0.60:8 \
+            --band 0.00:0.05:8 --band 0.40:0.60:8 --band 0.88:0.96:8 --band 0.97:1.00:8 \
             shots/small.png shots/huge.png > shotcheck.txt 2>&1
           cat shotcheck.txt
       - name: Benchmark
