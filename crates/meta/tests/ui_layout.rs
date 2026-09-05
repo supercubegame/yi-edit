@@ -29,6 +29,63 @@ fn theme_const(name: &str) -> f64 {
     panic!("theme.rs 里找不到 {name}");
 }
 
+/// 找对某个字段的**真赋值**。
+///
+/// 为什么不能直接找「字段名 + 空格 + 等号」：实测踩过 —— Rust 的 match 守卫
+/// `if self.editor_has_keys => ...` 里那个 `=>` 也含等号，于是五个守卫被当成了
+/// 五处赋值，断言假红。这就是「子串存在但不在该在的位置上」那个形状。
+fn assignments_to(src: &str, field: &str) -> Vec<String> {
+    let needle = format!("{field} =");
+    meta::hits_in_code(src, &needle)
+        .into_iter()
+        .filter(|(_, text)| {
+            // 同一行可能既有守卫也有赋值，所以逐个出现位置看下一个字符，
+            // 而不是简单地把含 `=>` 的行整行扇掉。
+            let bytes = text.as_bytes();
+            let mut from = 0usize;
+            while let Some(rel) = text[from..].find(&needle) {
+                let eq = from + rel + needle.len() - 1;
+                match bytes.get(eq + 1) {
+                    // `=>` 是 match 守卫，`==` 是比较，都不是赋值。
+                    Some(b'>') | Some(b'=') => from = eq + 1,
+                    _ => return true,
+                }
+            }
+            false
+        })
+        .map(|(line, text)| format!("{line}: {text}"))
+        .collect()
+}
+
+/// 扫描器自证：真赋值必须被拓到，match 守卫与比较必须被放过。
+/// 只验一侧的话，一个永远返回空列表的扫描器也能完美交差。
+#[test]
+fn the_assignment_scanner_tells_assignments_from_match_guards() {
+    let real = "fn f() { self.flag = true; }\n";
+    assert_eq!(
+        assignments_to(real, "flag").len(),
+        1,
+        "真赋值没被拓到（漏报）"
+    );
+    let guard = "match e { E::A if self.flag => g(), _ => {} }\n";
+    assert!(
+        assignments_to(guard, "flag").is_empty(),
+        "match 守卫的 => 被当成了赋值（误报）"
+    );
+    let cmp = "if self.flag == other { g(); }\n";
+    assert!(
+        assignments_to(cmp, "flag").is_empty(),
+        "比较被当成了赋值（误报）"
+    );
+    // 同一行既有守卫又有赋值：不能因为看到 `=>` 就整行扇掉。
+    let both = "E::A if self.flag => { self.flag = false; }\n";
+    assert_eq!(
+        assignments_to(both, "flag").len(),
+        1,
+        "同一行里的真赋值被守卫遮掉了（漏报）"
+    );
+}
+
 /// 行号栏宽度必须装得下行号位数。装不下的表现是行号与正文叠在一起，
 /// 而那一点只有看截图才发现得了 —— 所以它是一条断言而不是一句注释。
 /// 0.65 是等宽字体宽高比的保守上界，14 是左右内边距。
@@ -173,6 +230,37 @@ fn the_new_panels_are_actually_wired_into_the_ui() {
     );
 }
 
+/// 跳转面板的缩略图必须**按行**画。
+///
+/// 实测过的 bug：按像素采样（`step = h / 2`）时，13 行的文件里同一行会被画
+/// 二十多遍叠成一个实心块 —— 就是用户截图里右上角那个蓝块。
+#[test]
+fn the_jump_thumbnail_iterates_lines_not_pixels() {
+    let src = meta::read("crates/app/src/ui.rs");
+    let panel = src
+        .split("fn jump_panel")
+        .nth(1)
+        .expect("ui.rs 里没有 jump_panel");
+    let body = panel.split("\n    fn ").next().unwrap_or(panel);
+    // 负向：不得再出现把面板高度当循环次数的写法。
+    for bad in ["h / 2", "0..step"] {
+        let hits = meta::hits_in_code(body, bad);
+        assert!(
+            hits.is_empty(),
+            "缩略图又回到按像素采样了（{bad}），短文件里会叠成实心块：{hits:?}"
+        );
+    }
+    // 正向：循环变量必须是行号，且步长由行数与高度的比值定（行多于像素时才降级）。
+    assert!(
+        body.contains("while line_no < lines"),
+        "缩略图没按行遍历"
+    );
+    assert!(
+        body.contains("lines / h"),
+        "步长没根据行数与面板高度的比值定，百万行文件会画一百万条线"
+    );
+}
+
 /// **剪贴板三个事件都得接。** egui 把 Ctrl+C/V/X 转成 Event::Copy/Paste/Cut，
 /// 不接的话快捷键完全没反应 —— 而一个不能粘贴的编辑器不能交付。
 /// 这条只能验「接上了」；粘贴的真实行为在 session 那层有断言。
@@ -219,6 +307,17 @@ fn closing_with_unsaved_changes_is_intercepted_and_screenshots_bypass_it() {
         !meta::hits_in_code(&src, "shot.active()").is_empty(),
         "关窗拦截没给截图模式留旁路，CI 里会被对话框卡住"
     );
+    // 保存失败就不能退：否则「保存并退出」在保存失败时等于静默丢掉修改，
+    // 而那正是这个对话框要防的事。
+    let dialog = src
+        .split("fn close_dialog")
+        .nth(1)
+        .expect("ui.rs 里没有 close_dialog");
+    let body = dialog.split("\n    fn ").next().unwrap_or(dialog);
+    assert!(
+        body.contains("is_dirty"),
+        "「保存并退出」没重新核脏标记，保存失败也会直接退"
+    );
 }
 
 /// 焦点只能有一份真身。
@@ -229,10 +328,7 @@ fn closing_with_unsaved_changes_is_intercepted_and_screenshots_bypass_it() {
 #[test]
 fn keyboard_focus_has_exactly_one_source_of_truth() {
     let src = meta::read("crates/app/src/ui.rs");
-    let writes: Vec<String> = meta::hits_in_code(&src, "editor_has_keys =")
-        .into_iter()
-        .map(|(line, text)| format!("{line}: {text}"))
-        .collect();
+    let writes = assignments_to(&src, "editor_has_keys");
     assert_eq!(
         writes.len(),
         2,
