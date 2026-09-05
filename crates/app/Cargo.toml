@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 yi-edit-core = { path = "../core" }
-yi-edit-fileio = { path = "../fileio" }
+yi-edit-session = { path = "../session" }
 eframe = "0.36"
 egui = "0.36"
 image = { version = "0.25", default-features = false, features = ["png"] }

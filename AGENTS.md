@@ -11,14 +11,16 @@
 ## 结构
 
 - `crates/core`: 零依赖纯核心。
+- `crates/session`: 无 GUI 的编辑器会话，负责打开、保存、搜索、替换、光标和状态。
 - `crates/meta`: 仓库结构、文档、耦合参数和纯度扫描。
 - `crates/fileio`: 分块读写、内存映射、原子保存。
-- `crates/app`: egui/eframe GUI。
+- `crates/app`: egui/eframe GUI 外壳。
 - `scripts`: 闸门和报告脚本。
 - `.github/workflows`: 快闸门、慢闸门和结果回写。
 
 ## 核心不变量
 
+- 会话层不得依赖 GUI；旧的 `crates/app/src/editor.rs` 不得回来。
 - 搜索结果不重叠，合法 UTF-8 的匹配边界必须是字符边界。
 - 流式替换对任意块大小必须逐字节等于整缓冲区替换；夹具必须证明确有跨块匹配。
 - 高亮 span 铺满整行、不重叠、边界位于字符边界。

@@ -1,13 +1,11 @@
-//! Yi Edit 的 GUI 外壳。逻辑全在 yi-edit-core / yi-edit-fileio 里，这一层只负责画和收键。
-//!
-//! 两个环境变量是给 CI 用的，不设就完全不走那条路：
-//! - `YI_EDIT_SHOT=out.png` 稳定几帧后截图并退出。
-//! - `YI_EDIT_SHOT_SETTLE` 稳定秒数（默认 1.5）。用帧数不行：软件渲染下帧很便宜，
-//!   字体与纹理还没上来帧数就到了，拍到的是一张空窗口。
+//! Yi Edit GUI 外壳。编辑器会话逻辑在 `yi-edit-session`，这一层只负责启动与字体。
+
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod editor;
+mod editor {
+    pub use yi_edit_session::*;
+}
 mod shot;
 mod ui;
 
