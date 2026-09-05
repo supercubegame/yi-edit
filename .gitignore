@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+
+# 闸门产物：由脚本自己写，不进仓库
+gate.log
+gate-result.txt
+gate-metrics.txt
+report-attempts.txt
+bench-result.txt
+/shots
