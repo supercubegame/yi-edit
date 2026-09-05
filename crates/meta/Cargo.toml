@@ -1,0 +1,12 @@
+[package]
+name = "yi-edit-meta"
+description = "仓库结构、文档、耦合参数与纯度的扫描器（只有断言，不参与产品）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+yi-edit-core = { path = "../core" }
