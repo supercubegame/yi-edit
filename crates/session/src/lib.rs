@@ -274,6 +274,16 @@ impl Editor {
         })
     }
 
+    /// 封口当前撤销组。UI 在**光标移动 / 鼠标点击 / 失焦 / 切文件**时调它。
+    ///
+    /// 不调的后果不是报错，而是在另一处敲的字被归进上一个词的撤销组，
+    /// 而那一点只有用户敲 Ctrl+Z 时才发现。只读模式下是安全的空操作。
+    pub fn commit_undo_group(&mut self) {
+        if let Some(d) = self.doc_mut() {
+            d.commit_undo_group();
+        }
+    }
+
     /// 选区文本（复制用）。**故意不限只读模式**：从 64MB 只读文件里复制一段
     /// 是完全合法的需求，而它不改动任何东西。
     ///
@@ -320,24 +330,26 @@ impl Editor {
         }
     }
 
-    /// 插入文本（粘贴与键盘输入走同一条）。返回是否真的改动了内容。
+    /// 插入文本（粘贴、键盘输入、IME 上屏走同一条）。返回是否真的改动了内容。
     ///
     /// **走 `EditOp`**，所以粘贴可撤销、脏标记与高亮失效全部免费复用。
     /// 这也是后面接 AI 编辑的地基：AI 的改动必须走同一套算子，否则撤销会漏掉它们。
+    ///
+    /// 有选区时走 `Doc::replace_range`，**两个算子装进同一组** —— 否则敲一下 Ctrl+Z
+    /// 会停在一个用户从没见过的中间状态（选区已删、新内容未插）。
     pub fn insert_text(&mut self, text: &str) -> bool {
         if self.is_huge() || text.is_empty() {
             return false;
         }
-        // 有选区先删。注意：这是**两个**算子，所以撤销要敲两下。
-        // 已知行为，记在 docs/PITFALLS.md 里（撤销粒度那一步会一并收拾）。
-        if self.selection().is_some() {
-            self.cut_selection();
-        }
-        let at = self.cursor;
+        let sel = self.selection();
+        let at = sel.map(|(a, _)| a).unwrap_or(self.cursor);
         let Some(d) = self.doc_mut() else {
             return false;
         };
-        let end = d.insert(at, text);
+        let end = match sel {
+            Some((a, b)) => d.replace_range(a, b, text),
+            None => d.insert(at, text),
+        };
         self.cursor = end;
         self.anchor = None;
         self.invalidate_states(at.line);
@@ -505,7 +517,7 @@ Ctrl+S  保存（写临时文件再 rename，不会把原文件写成半截）
 Ctrl+F  定位到查找框
 Ctrl+A  全选
 Ctrl+C / Ctrl+X / Ctrl+V  复制 / 剪切 / 粘贴
-Ctrl+Z / Ctrl+Y  撤销 / 重做
+Ctrl+Z / Ctrl+Y  撤销 / 重做（按输入组，不是每个字符一步）
 Ctrl+B  开关侧栏
 Enter / Shift+Enter  下一个 / 上一个匹配
 
