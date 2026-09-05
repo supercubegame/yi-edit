@@ -146,16 +146,76 @@ impl YiEdit {
     }
 
     fn open_file(&mut self, path: &std::path::Path) {
-        if let Ok(editor) = Editor::open(path) {
-            self.ed.commit_undo_group();
-            self.ed = editor;
-            self.path = path.to_string_lossy().into();
-            self.hits.clear();
-            self.hit_index = 0;
-            self.truncated = false;
-            self.scroll_to = Some(0);
-            self.refresh();
+        match Editor::open(path) {
+            Ok(editor) => {
+                self.ed.commit_undo_group();
+                self.ed = editor;
+                self.path = path.to_string_lossy().into();
+                self.hits.clear();
+                self.hit_index = 0;
+                self.truncated = false;
+                self.scroll_to = Some(0);
+                self.refresh();
+            }
+            // 打不开要说为什么。默默什么也不发生与「打开了一个空文件」在屏幕上很难分。
+            Err(e) => self.ed.status = format!("打不开 {}：{e}", path.display()),
         }
+    }
+
+    /// 保存当前文档，返回是不是真的写成了。
+    ///
+    /// 还没有路径时拿工具栏那个输入框当目标（即“另存为”）。
+    /// **返回值是承重的**：关窗对话框的「保存并退出」靠它判断能不能真的退。
+    fn save_current(&mut self) -> bool {
+        let result = if self.ed.path.is_some() {
+            self.ed.save()
+        } else {
+            self.ed.save_as(std::path::Path::new(self.path.trim()))
+        };
+        match result {
+            Ok(saved) => {
+                self.ed.status = saved.message();
+                self.path = saved.path.to_string_lossy().into();
+                self.refresh();
+                true
+            }
+            Err(e) => {
+                self.ed.status = format!("保存失败：{e}");
+                false
+            }
+        }
+    }
+
+    /// 另存为输入框里的路径。
+    fn save_as_typed(&mut self) -> bool {
+        let target = PathBuf::from(self.path.trim());
+        match self.ed.save_as(&target) {
+            Ok(saved) => {
+                self.ed.status = saved.message();
+                self.refresh();
+                true
+            }
+            Err(e) => {
+                self.ed.status = format!("另存为失败：{e}");
+                false
+            }
+        }
+    }
+
+    /// 新建。有未保存修改时拒给：静默换掉一份没存的文档与删掉它没区别。
+    fn new_file(&mut self) {
+        if self.ed.is_dirty() {
+            self.ed.status =
+                String::from("有未保存的修改：先保存或另存为，再新建（不会静默丢掉你的文字）");
+            return;
+        }
+        self.ed.new_file();
+        self.path.clear();
+        self.hits.clear();
+        self.hit_index = 0;
+        self.truncated = false;
+        self.preedit.clear();
+        self.scroll_to = Some(0);
     }
 
     fn insert(&mut self, text: &str) {
@@ -343,15 +403,18 @@ impl YiEdit {
     fn handle_key(&mut self, key: egui::Key, modifiers: egui::Modifiers, editor_focused: bool) {
         if modifiers.command {
             match key {
-                egui::Key::S => {
-                    if let Err(e) = self.ed.save() {
-                        self.ed.status = format!("保存失败：{e}");
-                    }
+                // Ctrl+Shift+S 是另存为；单独的 Ctrl+S 没路径时也走另存为。
+                egui::Key::S if modifiers.shift => {
+                    self.save_as_typed();
                 }
+                egui::Key::S => {
+                    self.save_current();
+                }
+                egui::Key::N => self.new_file(),
                 egui::Key::B => self.show_sidebar = !self.show_sidebar,
                 egui::Key::F => self.show_find = !self.show_find,
                 egui::Key::O => {
-                    let path = PathBuf::from(self.path.clone());
+                    let path = PathBuf::from(self.path.trim());
                     self.open_file(&path);
                 }
                 egui::Key::A if editor_focused => self.ed.select_all(),
@@ -407,14 +470,18 @@ impl YiEdit {
             if ui.button("查找").clicked() {
                 self.show_find = !self.show_find;
             }
+            if ui.button("新建").clicked() {
+                self.new_file();
+            }
             if ui.button("打开").clicked() {
-                let path = PathBuf::from(self.path.clone());
+                let path = PathBuf::from(self.path.trim());
                 self.open_file(&path);
             }
             if ui.button("保存").clicked() {
-                if let Err(e) = self.ed.save() {
-                    self.ed.status = format!("保存失败：{e}");
-                }
+                self.save_current();
+            }
+            if ui.button("另存为").clicked() {
+                self.save_as_typed();
             }
             if ui
                 .add_enabled(self.ed.can_undo(), egui::Button::new("撤销"))
@@ -429,11 +496,9 @@ impl YiEdit {
                 self.ed.redo();
             }
             ui.add_sized(
-                [360.0, 24.0],
+                [320.0, 24.0],
                 egui::TextEdit::singleline(&mut self.path).hint_text("文件路径"),
             );
-            let bar = self.ed.status_bar();
-            ui.label(egui::RichText::new(bar.name).font(sans(12.0)).color(th::TEXT_DIM));
         });
         ui.painter().hline(
             rect.x_range(),
@@ -928,8 +993,14 @@ impl eframe::App for YiEdit {
         }
         if self.close_dialog {
             egui::Window::new("有未保存的修改").show(&ctx, |ui| {
-                if ui.button("保存并退出").clicked() {
-                    let _ = self.ed.save();
+                ui.label(
+                    egui::RichText::new(self.ed.status.clone())
+                        .font(sans(11.0))
+                        .color(th::TEXT_DIM),
+                );
+                // **保存失败时绝不能退。** 上一版无条件置 force_close：刚启动的文档没有路径，
+                // 于是保存失败也照样退，用户那一段字直接没了 —— 而他点的是「保存并退出」。
+                if ui.button("保存并退出").clicked() && self.save_current() {
                     self.force_close = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
