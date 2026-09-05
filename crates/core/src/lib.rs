@@ -4,9 +4,11 @@
 //! 这条不是靠约定守的 —— crates/meta/tests/purity.rs 里有一个扫描器在守，
 //! 而且它会先剥掉注释和字符串字面量再找，所以「在注释里提一下」既不会漏报也不会误报。
 //!
-//! 这样做的回报很具体：同样输入必然同样输出（可断言）、几万步操作能在毫秒内跑完（可压测）、
+//! 这条铁律直接影响了撤销的设计：分组不能靠「停顿超过 N 毫秒」（需要系统时间），
+//! 只能靠输入内容与位置的结构 —— 而后者恰好是可断言的。
+//!
+//! 其余回报：同样输入必然同样输出（可断言）、几万步操作能在毫秒内跑完（可压测）、
 //! 同一份逻辑换任何外壳都能复用（GUI / 基准测试 / 未来的命令行都用这一份）。
-//! 撤销功能也几乎是白送的：编辑是可逆算子，撤销就是一个算子栈。
 #![forbid(unsafe_code)]
 
 pub mod consts;
@@ -18,7 +20,7 @@ pub mod search;
 pub mod stream;
 
 pub use consts::{CHUNK_OVERLAP, CHUNK_SIZE, HUGE_FILE_THRESHOLD, MAX_PATTERN_LEN, MAX_UNDO};
-pub use edit::{Doc, EditOp, Eol, Pos};
+pub use edit::{advance, Doc, EditOp, Eol, Pos, MAX_GROUP_CHARS};
 pub use highlight::{highlight_line, lang_from_path, Lang, LineState, Span, TokenKind};
 pub use lines::LineIndex;
 pub use replace::{replace_all, ReplaceError, StreamReplacer};
