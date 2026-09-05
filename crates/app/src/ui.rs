@@ -1,4 +1,7 @@
 //! 界面层。只负责画和收键，不放任何搜索/替换/高亮的真逻辑。
+//!
+//! 不用面板（Panel）：eframe 0.36 的 `App::ui` 直接给一个覆盖整窗口的 `Ui`，
+//! 在它上面排版就够了。少用两个容易随版本漂的 API，换掉两个风险点。
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -204,7 +207,8 @@ impl YiEdit {
 
     fn insert_text(&mut self, text: &str) {
         if self.ed.is_huge() {
-            self.ed.status = String::from("大文件为只读模式：V1 不在超过 64 MB 的文件上做内存编辑");
+            self.ed.status =
+                String::from("大文件为只读模式：V1 不在超过 64 MB 的文件上做内存编辑");
             return;
         }
         self.delete_selection();
@@ -331,10 +335,11 @@ impl YiEdit {
                 } => {
                     if modifiers.command {
                         match key {
-                            egui::Key::S => match self.ed.save() {
-                                Ok(()) => {}
-                                Err(e) => self.ed.status = format!("保存失败：{e}"),
-                            },
+                            egui::Key::S => {
+                                if let Err(e) = self.ed.save() {
+                                    self.ed.status = format!("保存失败：{e}");
+                                }
+                            }
                             egui::Key::O => self.open_path(),
                             egui::Key::F => self.focus_search = true,
                             egui::Key::Z => {
@@ -399,98 +404,97 @@ impl YiEdit {
         self.ed.status = String::from("没有可重做的操作");
     }
 
-    fn top_bar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("bar").show(ctx, |ui| {
-            let mut any_focus = false;
-            ui.horizontal(|ui| {
-                ui.label("Yi Edit");
-                let r = ui.add(
-                    egui::TextEdit::singleline(&mut self.path_input)
-                        .desired_width(360.0)
-                        .hint_text("文件路径"),
-                );
-                any_focus |= r.has_focus();
-                if ui.button("打开").clicked() {
-                    self.open_path();
-                }
-                if ui.button("保存").clicked() {
-                    if let Err(e) = self.ed.save() {
-                        self.ed.status = format!("保存失败：{e}");
-                    }
-                }
-                let dirty = self.ed.doc().map(|d| d.is_dirty()).unwrap_or(false);
-                if dirty {
-                    ui.colored_label(egui::Color32::from_rgb(230, 180, 80), "● 未保存");
-                }
-                if self.ed.is_huge() {
-                    ui.colored_label(egui::Color32::from_rgb(120, 180, 240), "大文件只读");
-                }
-            });
-            ui.horizontal(|ui| {
-                let sr = ui.add(
-                    egui::TextEdit::singleline(&mut self.search)
-                        .desired_width(220.0)
-                        .hint_text("查找"),
-                );
-                any_focus |= sr.has_focus();
-                if self.focus_search {
-                    sr.request_focus();
-                    self.focus_search = false;
-                }
-                if sr.changed() {
-                    self.do_search();
-                }
-                if sr.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    self.goto_hit(!ui.input(|i| i.modifiers.shift));
-                }
-                if ui.button("上一个").clicked() {
-                    self.goto_hit(false);
-                }
-                if ui.button("下一个").clicked() {
-                    self.goto_hit(true);
-                }
-                let rr = ui.add(
-                    egui::TextEdit::singleline(&mut self.replace)
-                        .desired_width(220.0)
-                        .hint_text("替换为"),
-                );
-                any_focus |= rr.has_focus();
-                if ui.button("全部替换").clicked() {
-                    self.do_replace_all();
-                }
-                if ui.checkbox(&mut self.case_sensitive, "区分大小写").changed()
-                    || ui.checkbox(&mut self.whole_word, "全词匹配").changed()
-                {
-                    self.do_search();
-                }
-                let label = if self.hits.is_empty() {
-                    String::from("无匹配")
-                } else if self.hits_truncated {
-                    // 「只找到这么多」与「只有这么多」必须在界面上就分得清。
-                    format!("{}/{}+（已到上限）", self.hit_idx + 1, self.hits.len())
-                } else {
-                    format!("{}/{}", self.hit_idx + 1, self.hits.len())
-                };
-                ui.label(label);
-            });
-            ui.label(
-                egui::RichText::new(&self.ed.status)
-                    .color(egui::Color32::from_gray(150))
-                    .size(12.0),
+    fn top_bar(&mut self, ui: &mut egui::Ui) {
+        let mut any_focus = false;
+        ui.horizontal(|ui| {
+            ui.label("Yi Edit");
+            let r = ui.add(
+                egui::TextEdit::singleline(&mut self.path_input)
+                    .desired_width(360.0)
+                    .hint_text("文件路径"),
             );
-            self.editor_has_keys = !any_focus;
+            any_focus |= r.has_focus();
+            if ui.button("打开").clicked() {
+                self.open_path();
+            }
+            if ui.button("保存").clicked() {
+                if let Err(e) = self.ed.save() {
+                    self.ed.status = format!("保存失败：{e}");
+                }
+            }
+            let dirty = self.ed.doc().map(|d| d.is_dirty()).unwrap_or(false);
+            if dirty {
+                ui.colored_label(egui::Color32::from_rgb(230, 180, 80), "● 未保存");
+            }
+            if self.ed.is_huge() {
+                ui.colored_label(egui::Color32::from_rgb(120, 180, 240), "大文件只读");
+            }
         });
+        ui.horizontal(|ui| {
+            let sr = ui.add(
+                egui::TextEdit::singleline(&mut self.search)
+                    .desired_width(220.0)
+                    .hint_text("查找"),
+            );
+            any_focus |= sr.has_focus();
+            if self.focus_search {
+                sr.request_focus();
+                self.focus_search = false;
+            }
+            if sr.changed() {
+                self.do_search();
+            }
+            if sr.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let forward = !ui.input(|i| i.modifiers.shift);
+                self.goto_hit(forward);
+            }
+            if ui.button("上一个").clicked() {
+                self.goto_hit(false);
+            }
+            if ui.button("下一个").clicked() {
+                self.goto_hit(true);
+            }
+            let rr = ui.add(
+                egui::TextEdit::singleline(&mut self.replace)
+                    .desired_width(220.0)
+                    .hint_text("替换为"),
+            );
+            any_focus |= rr.has_focus();
+            if ui.button("全部替换").clicked() {
+                self.do_replace_all();
+            }
+            let a = ui.checkbox(&mut self.case_sensitive, "区分大小写").changed();
+            let b = ui.checkbox(&mut self.whole_word, "全词匹配").changed();
+            if a || b {
+                self.do_search();
+            }
+            let label = if self.hits.is_empty() {
+                String::from("无匹配")
+            } else if self.hits_truncated {
+                // 「只找到这么多」与「只有这么多」必须在界面上就分得清。
+                format!("{}/{}+（已到上限）", self.hit_idx + 1, self.hits.len())
+            } else {
+                format!("{}/{}", self.hit_idx + 1, self.hits.len())
+            };
+            ui.label(label);
+        });
+        ui.label(
+            egui::RichText::new(&self.ed.status)
+                .color(egui::Color32::from_gray(150))
+                .size(12.0),
+        );
+        self.editor_has_keys = !any_focus;
     }
 
+    /// 排版宽度走 `Painter`：`Context::fonts` 给的是不可变引用，而排版需要可变。
     fn text_width(ui: &egui::Ui, s: &str) -> f32 {
         if s.is_empty() {
             return 0.0;
         }
-        ui.fonts(|f| {
-            f.layout_no_wrap(s.to_owned(), mono(), egui::Color32::WHITE)
-                .rect
-                .width()
-        })
+        ui.painter()
+            .layout_no_wrap(s.to_owned(), mono(), egui::Color32::WHITE)
+            .rect
+            .width()
     }
 
     fn col_from_x(ui: &egui::Ui, text: &str, x_rel: f32) -> usize {
@@ -548,10 +552,10 @@ impl YiEdit {
         // 匹配高亮
         if !self.search.is_empty() {
             for hit in self.hits.iter().filter(|p| p.line == row) {
-                let end = (hit.col + self.search.len()).min(text.len());
                 if hit.col > text.len() {
                     continue;
                 }
+                let end = (hit.col + self.search.len()).min(text.len());
                 let x0 = text_x + Self::text_width(ui, &text[..hit.col]);
                 let x1 = text_x + Self::text_width(ui, &text[..end]);
                 painter.rect_filled(
@@ -578,7 +582,7 @@ impl YiEdit {
                 },
             );
         }
-        let galley = ui.fonts(|f| f.layout_job(job));
+        let galley = ui.painter().layout_job(job);
         painter.galley(
             egui::pos2(text_x, rect.min.y),
             galley,
@@ -599,7 +603,8 @@ impl YiEdit {
         if let Some(p) = resp.interact_pointer_pos() {
             let col = Self::col_from_x(ui, &text, p.x - text_x);
             let target = Pos::new(row, col);
-            if resp.drag_started() || (resp.clicked() && !ui.input(|i| i.modifiers.shift)) {
+            let shift = ui.input(|i| i.modifiers.shift);
+            if resp.drag_started() || (resp.clicked() && !shift) {
                 self.ed.anchor = Some(target);
             } else if resp.dragged() && self.ed.anchor.is_none() {
                 self.ed.anchor = Some(self.ed.cursor);
@@ -607,29 +612,35 @@ impl YiEdit {
             self.ed.cursor = self.ed.clamp(target);
         }
     }
+
+    fn body(&mut self, ui: &mut egui::Ui) {
+        let row_h = ui
+            .text_style_height(&egui::TextStyle::Monospace)
+            .max(FONT_SIZE);
+        let total = self.ed.line_count().max(1);
+        let mut area = egui::ScrollArea::both().auto_shrink([false, false]);
+        if let Some(line) = self.scroll_to.take() {
+            let offset = (line as f32 * row_h - 120.0).max(0.0);
+            area = area.vertical_scroll_offset(offset);
+        }
+        area.show_rows(ui, row_h, total, |ui, range| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for row in range {
+                self.draw_row(ui, row, row_h);
+            }
+        });
+    }
 }
 
 impl eframe::App for YiEdit {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.shot.tick(ctx);
-        self.handle_keys(ctx);
-        self.top_bar(ctx);
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let row_h = ui.text_style_height(&egui::TextStyle::Monospace).max(FONT_SIZE);
-            let total = self.ed.line_count().max(1);
-            let mut area = egui::ScrollArea::both().auto_shrink([false, false]);
-            if let Some(line) = self.scroll_to.take() {
-                let offset = (line as f32 * row_h - 120.0).max(0.0);
-                area = area.vertical_scroll_offset(offset);
-            }
-            area.show_rows(ui, row_h, total, |ui, range| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                for row in range {
-                    self.draw_row(ui, row, row_h);
-                }
-            });
-        });
+    /// eframe 0.36 的入口：拿到的是一个覆盖整窗口的 `Ui`，不再是 `&Context`。
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        self.shot.tick(&ctx);
+        self.handle_keys(&ctx);
+        self.top_bar(ui);
+        ui.separator();
+        self.body(ui);
     }
 }
 

@@ -156,7 +156,9 @@ fn syntax(lang: Lang) -> Syntax {
             block_string: Some(("\"\"\"", "\"\"\"")),
             quotes: &[b'"', b'\''],
             keywords: PY_KEYWORDS,
-            types: &["bool", "bytes", "dict", "float", "int", "list", "set", "str", "tuple"],
+            types: &[
+                "bool", "bytes", "dict", "float", "int", "list", "set", "str", "tuple",
+            ],
             numbers: true,
             markdown_headings: false,
             quote_needs_char_shape: false,
@@ -309,7 +311,7 @@ fn seal(mut spans: Vec<Span>, text_start: usize, len: usize) -> Vec<Span> {
     spans
 }
 
-/// 高亮一行。`state` 是上一行的出口状态，返回值的第二项是本行的出口状态。
+/// 高亮一行。`state_in` 是上一行的出口状态，返回值的第二项是本行的出口状态。
 /// 纯函数：同样的 (line, lang, state) 必然得到同样的输出。
 pub fn highlight_line(line: &str, lang: Lang, state_in: LineState) -> (Vec<Span>, LineState) {
     let sx = syntax(lang);
@@ -357,7 +359,6 @@ pub fn highlight_line(line: &str, lang: Lang, state_in: LineState) -> (Vec<Span>
     while i < len {
         if starts_with_any(b, i, sx.line_comments) {
             push(&mut spans, &mut text_start, i, len, TokenKind::Comment);
-            i = len;
             break;
         }
         if let Some((open, close)) = sx.block_comment {
@@ -467,5 +468,8 @@ pub fn highlight_line(line: &str, lang: Lang, state_in: LineState) -> (Vec<Span>
 }
 
 fn first_char_is_upper(word: &str) -> bool {
-    word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+    word.chars()
+        .next()
+        .map(|c| c.is_uppercase())
+        .unwrap_or(false)
 }
