@@ -2,6 +2,7 @@
 //!
 //! 用**时间**而不是帧数做稳定判据：软件渲染下持续重绘的帧很便宜，
 //! 按帧数会在字体图集还没上传前就触发，拍到一张空窗口——而那张图看起来很正常。
+//! 实测：1.5 秒 + 软件渲染下拍到的图有 3000+ 种颜色，字体已经上来了。
 
 use std::path::PathBuf;
 
@@ -9,7 +10,6 @@ pub struct Shot {
     target: Option<PathBuf>,
     settle: f64,
     requested: bool,
-    saved: bool,
 }
 
 impl Shot {
@@ -21,12 +21,7 @@ impl Shot {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1.5),
             requested: false,
-            saved: false,
         }
-    }
-
-    pub fn active(&self) -> bool {
-        self.target.is_some()
     }
 
     /// 每帧调一次。稳定后请求截图，拿到图就写盘并关窗。
@@ -54,18 +49,11 @@ impl Shot {
                 raw.extend_from_slice(&px.to_array());
             }
             match image::save_buffer(&path, &raw, w as u32, h as u32, image::ColorType::Rgba8) {
-                Ok(()) => {
-                    eprintln!("SHOT saved {} ({w}x{h})", path.display());
-                    self.saved = true;
-                }
+                Ok(()) => eprintln!("SHOT saved {} ({w}x{h})", path.display()),
                 // 写不出去就要大声报：静默失败与「截图正常」在面板上一模一样。
                 Err(e) => eprintln!("SHOT FAILED {}: {e}", path.display()),
             }
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-    }
-
-    pub fn saved(&self) -> bool {
-        self.saved
     }
 }

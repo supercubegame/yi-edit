@@ -1,11 +1,10 @@
 //! 大文件基准。两个目的，而且后者更重要：
 //!
-//! 1. 采集实测耗时（打开、建索引、搜索、替换、保存）。第一轮只记录，不设阈值：
-//!    没有实测值就写下限，那条断言只会制造假红。
+//! 1. 采集实测耗时（写盘、建索引、窗口读、搜索、替换）。
 //! 2. 在真实尺寸上验正确性：埋下确定数量的靶模式，搜到的数和替掉的数必须对得上。
-//!    单元测试里的文件只有几十字节，真正的多块边界只有在这里才会被压到。
+//!    单元测试里的文件只有几十字节，真正的多块边界只有在这里手会被压到。
 //!
-//! 输出写成 key=value 的 bench-result.txt，给报告脚本读。
+//! 性能阈值只抓「卡死」，不当性能基准；实测值与阈值的对照表在 docs/PITFALLS.md。
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -18,6 +17,13 @@ use yi_edit_fileio as fio;
 const NEEDLE_EVERY: usize = 500;
 const NEEDLE: &str = "YI_TARGET_TOKEN";
 const REPL: &str = "YI_REPLACED_TOKEN_LONGER";
+
+/// 卡死门槛。**实测值**（64 MB，CI ubuntu-latest）：建索引 77ms、搜索 37ms、替换 81ms。
+/// 故意给到约 40 倍余量而不是三倍：共享 CPU 的 runner 抖动很大，留三倍会变成
+/// 一台假红工厂，而假红会让人学会忽略闸门。它们只抓一类失败：彻底卡死。
+const MAX_INDEX_MS: u128 = 3000;
+const MAX_SEARCH_MS: u128 = 3000;
+const MAX_REPLACE_MS: u128 = 5000;
 
 fn mb() -> usize {
     std::env::var("YI_EDIT_BENCH_MB")
@@ -72,8 +78,7 @@ fn main() -> std::io::Result<()> {
 
     // ---- 全文搜索 ----
     let search_start = Instant::now();
-    let (hits, truncated) =
-        fio::find_offsets(&path, NEEDLE.as_bytes(), SearchOptions::exact(), 0)?;
+    let (hits, truncated) = fio::find_offsets(&path, NEEDLE.as_bytes(), SearchOptions::exact(), 0)?;
     let search_ms = search_start.elapsed().as_millis();
 
     // ---- 就地替换（替换串比原串长，故意让文件变大） ----
@@ -100,10 +105,10 @@ fn main() -> std::io::Result<()> {
     let _ = writeln!(out, "needle_left={}", left.len());
     let _ = writeln!(out, "gen_ms={gen_ms}");
     let _ = writeln!(out, "write_ms={write_ms}");
-    let _ = writeln!(out, "index_ms={index_ms}");
+    let _ = writeln!(out, "index_ms={index_ms} (上限 {MAX_INDEX_MS})");
     let _ = writeln!(out, "window_ms={window_ms}");
-    let _ = writeln!(out, "search_ms={search_ms}");
-    let _ = writeln!(out, "replace_ms={replace_ms}");
+    let _ = writeln!(out, "search_ms={search_ms} (上限 {MAX_SEARCH_MS})");
+    let _ = writeln!(out, "replace_ms={replace_ms} (上限 {MAX_REPLACE_MS})");
     print!("{out}");
     std::fs::write(PathBuf::from("bench-result.txt"), out.as_bytes())?;
 
@@ -132,7 +137,21 @@ fn main() -> std::io::Result<()> {
         ));
     }
     if idx.line_count() < 1000 {
-        bad.push(format!("只有 {} 行，这个尺寸压不到多块边界", idx.line_count()));
+        bad.push(format!(
+            "只有 {} 行，这个尺寸压不到多块边界",
+            idx.line_count()
+        ));
+    }
+
+    // ---- 卡死门槛 ----
+    if index_ms > MAX_INDEX_MS {
+        bad.push(format!("建索引 {index_ms}ms 超过上限 {MAX_INDEX_MS}ms"));
+    }
+    if search_ms > MAX_SEARCH_MS {
+        bad.push(format!("搜索 {search_ms}ms 超过上限 {MAX_SEARCH_MS}ms"));
+    }
+    if replace_ms > MAX_REPLACE_MS {
+        bad.push(format!("替换 {replace_ms}ms 超过上限 {MAX_REPLACE_MS}ms"));
     }
 
     if bad.is_empty() {
