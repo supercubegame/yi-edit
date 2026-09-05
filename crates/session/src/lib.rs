@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 pub mod browser;
+pub mod fontpick;
 pub mod ime;
 pub mod jump;
 pub mod status;
@@ -297,7 +298,7 @@ impl Editor {
 
 pub const WELCOME: &str = "# Yi Edit
 
-极简跨平台代码编辑器。快捷键：
+极简跳平台代码编辑器。快捷键：
 
 Ctrl+O  打开输入框里的路径
 Ctrl+S  保存（写临时文件再 rename，不会把原文件写成半截）
