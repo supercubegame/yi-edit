@@ -53,8 +53,16 @@ jobs:
           if-no-files-found: warn
       # 不是断言，只是把原始输出搬到我读得到的通道上。放在最终判定之前。
       - name: Post raw fast-gate log
+        id: raw
+        continue-on-error: true
+        run: bash scripts/raw-log.sh "快闸门原始输出" 2 gate.log gate-result.txt > raw-log-run.txt 2>&1
+      # 第二次调用把第一次的 stderr 与退出码一起发出去：回写脚本自己的失败
+      # 是唯一一处不能靠它自己报的地方。这一步失败则 job 直接红。
+      - name: Post raw fast-gate log with its own trace
         if: always()
-        run: bash scripts/raw-log.sh "快闸门原始输出" 2 gate.log gate-result.txt
+        run: |
+          echo "raw_log_outcome=${{ steps.raw.outcome }}" >> raw-log-run.txt
+          bash scripts/raw-log.sh "快闸门原始输出" 2 raw-log-run.txt gate.log gate-result.txt
       - name: Fail after evidence is uploaded
         if: always()
         run: |
@@ -212,6 +220,7 @@ jobs:
         run: |
           {
             echo "os=${{ matrix.os }} probe=${{ matrix.probe }}"
+            echo "bash=$BASH_VERSION"
             echo "build=${{ steps.build.outcome }}"
             echo "upload_bin=${{ steps.upload_bin.outcome }}"
             echo "selftest=${{ steps.selftest.outcome }}"
@@ -238,11 +247,19 @@ jobs:
       # 每个平台一个 marker：三个平台共用一个的话，后面的会把前面的盖掉，
       # 而覆盖的表现是「那条日志本来就不存在」。
       - name: Post raw slow-gate log
-        if: always()
+        id: raw
+        continue-on-error: true
         shell: bash
         run: |
           bash scripts/raw-log.sh "慢闸门原始输出 ${{ matrix.os }}" ${{ matrix.marker_line }} \
-            outcomes.txt build.log app-run.txt shotcheck.txt bench-run.txt
+            outcomes.txt build.log app-run.txt shotcheck.txt bench-run.txt > raw-log-run.txt 2>&1
+      - name: Post raw slow-gate log with its own trace
+        if: always()
+        shell: bash
+        run: |
+          echo "raw_log_outcome=${{ steps.raw.outcome }}" >> raw-log-run.txt
+          bash scripts/raw-log.sh "慢闸门原始输出 ${{ matrix.os }}" ${{ matrix.marker_line }} \
+            raw-log-run.txt outcomes.txt build.log app-run.txt shotcheck.txt bench-run.txt
       - name: Fail if the evaluation failed
         if: always()
         shell: bash
