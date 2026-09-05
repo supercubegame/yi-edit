@@ -67,7 +67,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preedit_is_visible_but_commit_is_the_only_text_effect() {
+    fn preedit_preserves_active_range_and_commit_is_the_only_text_effect() {
         let mut a = ImeAdapter::default();
         assert_eq!(
             a.feed(&egui::ImeEvent::Preedit {
@@ -83,10 +83,11 @@ mod tests {
             AdapterEffect::Commit("你".into())
         );
         assert_eq!(a.preedit().text, "");
+        assert_eq!(a.preedit().active_range_chars, None);
     }
 
     #[test]
-    fn delete_surrounding_is_preserved() {
+    fn delete_surrounding_preserves_character_counts() {
         let mut a = ImeAdapter::default();
         assert_eq!(
             a.feed(&egui::ImeEvent::DeleteSurrounding {
@@ -98,5 +99,17 @@ mod tests {
                 after_chars: 1,
             }
         );
+    }
+
+    #[test]
+    fn disabled_clears_stale_preedit() {
+        let mut a = ImeAdapter::default();
+        a.feed(&egui::ImeEvent::Preedit {
+            text: "残留".into(),
+            active_range_chars: Some(0..2),
+        });
+        assert_eq!(a.feed(&egui::ImeEvent::Disabled), AdapterEffect::ClearPreedit);
+        assert_eq!(a.preedit().text, "");
+        assert_eq!(a.preedit().active_range_chars, None);
     }
 }
