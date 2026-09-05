@@ -1,16 +1,21 @@
 //! 截图检查器。它不看文件大小——大片纯色的界面 PNG 压到十几 KB 很正常，
-//! 拿字节数当下限只会把正常图判成假的（这是上一个项目真踩过的坑）。
+//! 拿字节数当下限只会把正常图判成假的（这是上一个项目真蹩过的坑）。
 //!
-//! 四类检查，每一类都打印实测值：
+//! 五类检查，每一类都打印实测值：
 //! 1. 尺寸：与请求的窗口尺寸一致（允许 HiDPI 整数倍）。
 //! 2. 不同颜色数：一张真的画了高亮文本的图，颜色数不会只有几个。
 //! 3. 背景占比：全屏只有背景色 = 空窗口。
-//! 4. **区域检查**（`--band`）：指定的一条横带必须真的有内容。
+//! 4. **横带检查**（`--band`）：指定的一条横带必须真的有内容。
+//! 5. **竖带检查**（`--vband`）：指定的一条竖带必须真的有内容。
 //!
 //! 2 与 3 的**判词不同**，所以不能合成一条：一个守「真的画了内容」，
 //! 一个守「不是一张纯色图」。而 4 守的是第三件事：**局部**空白。
 //! 实测过：底部一大块黑色留白（占全图约 15%）既不改颜色数也不改背景占比，
 //! 前三条全绿。
+//!
+//! 5 是因为横带在另一个方向上有同样的盲区：右侧跳转面板整条没画的话，
+//! 每一条横带里仍然有大量正文颜色，于是四条横带全绿而面板根本不存在。
+//! 自测里有一个向右置空的变异体先证明横带真的看不见它。
 //!
 //! `--selftest` 把检查器套在合成图上：每一条都要双向（该红的红、该绿的绿）。
 //! 只验一侧的话，一个永远返回「通过」的检查器也能完美交差。
@@ -26,42 +31,65 @@ const MIN_DISTINCT_COLORS: usize = 1000;
 /// 故意留在 0.995：收得太紧它就会在「空白文件」这种完全正常的场景下假红。
 const MAX_BG_RATIO: f64 = 0.995;
 
-/// 一条横带的检查：`上比例:下比例:最少颜色数`。
+/// 带的方向。两个方向各自有盲区，所以不能只留一个。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Axis {
+    /// 横带：按高度比例切，守工具栏 / 正文 / 状态栏这种上下分层。
+    Horizontal,
+    /// 竖带：按宽度比例切，守侧栏 / 正文 / 跳转面板这种左右分层。
+    Vertical,
+}
+
+impl Axis {
+    fn label(self) -> &'static str {
+        match self {
+            Axis::Horizontal => "band",
+            Axis::Vertical => "vband",
+        }
+    }
+}
+
+/// 一条带的检查：`起比例:止比例:最少颜色数`。
 #[derive(Debug, Clone, Copy)]
 struct Band {
-    top: f64,
-    bottom: f64,
+    axis: Axis,
+    from: f64,
+    to: f64,
     min_colors: usize,
 }
 
 impl Band {
-    fn parse(s: &str) -> Result<Self, String> {
+    fn parse(axis: Axis, s: &str) -> Result<Self, String> {
         let parts: Vec<&str> = s.split(':').collect();
         if parts.len() != 3 {
-            return Err(format!("--band 要写成 上:下:最少颜色数，比如 0.85:1.0:8，得到的是 {s:?}"));
+            return Err(format!(
+                "--{} 要写成 起:止:最少颜色数，比如 0.85:1.0:8，得到的是 {s:?}",
+                axis.label()
+            ));
         }
-        let top: f64 = parts[0].parse().map_err(|_| format!("上边界不是数：{s:?}"))?;
-        let bottom: f64 = parts[1].parse().map_err(|_| format!("下边界不是数：{s:?}"))?;
+        let from: f64 = parts[0].parse().map_err(|_| format!("起边界不是数：{s:?}"))?;
+        let to: f64 = parts[1].parse().map_err(|_| format!("止边界不是数：{s:?}"))?;
         let min_colors: usize = parts[2]
             .parse()
             .map_err(|_| format!("最少颜色数不是数：{s:?}"))?;
-        if !(0.0..=1.0).contains(&top) || !(0.0..=1.0).contains(&bottom) || top >= bottom {
+        if !(0.0..=1.0).contains(&from) || !(0.0..=1.0).contains(&to) || from >= to {
             return Err(format!("带的边界不合法：{s:?}"));
         }
         Ok(Self {
-            top,
-            bottom,
+            axis,
+            from,
+            to,
             min_colors,
         })
     }
 
-    /// 带在图上的像素行区间。至少一行高：否则带检查会在矮图上变成空断言。
-    fn rows(self, height: u32) -> (u32, u32) {
-        let y0 = (self.top * height as f64).floor() as u32;
-        let y1 = (self.bottom * height as f64).ceil() as u32;
-        let y0 = y0.min(height.saturating_sub(1));
-        let y1 = y1.clamp(y0 + 1, height);
-        (y0, y1)
+    /// 带在那个轴上的像素区间。至少一行 / 一列宽：否则带检查会在小图上变成空断言。
+    fn span(self, extent: u32) -> (u32, u32) {
+        let a = (self.from * extent as f64).floor() as u32;
+        let b = (self.to * extent as f64).ceil() as u32;
+        let a = a.min(extent.saturating_sub(1));
+        let b = b.clamp(a + 1, extent);
+        (a, b)
     }
 }
 
@@ -128,19 +156,37 @@ fn check(path: &Path, want: Option<(u32, u32)>, bands: &[Band]) -> Result<Report
     // 区域检查：整图指标对局部空白毫无意见，而局部空白是真 bug。
     let mut band_colors = Vec::new();
     for b in bands {
-        let (y0, y1) = b.rows(height);
+        let (a, z) = match b.axis {
+            Axis::Horizontal => b.span(height),
+            Axis::Vertical => b.span(width),
+        };
         let mut seen: HashSet<[u8; 4]> = HashSet::new();
-        for y in y0..y1 {
-            for x in 0..width {
-                seen.insert(img.get_pixel(x, y).0);
+        match b.axis {
+            Axis::Horizontal => {
+                for y in a..z {
+                    for x in 0..width {
+                        seen.insert(img.get_pixel(x, y).0);
+                    }
+                }
+            }
+            Axis::Vertical => {
+                for x in a..z {
+                    for y in 0..height {
+                        seen.insert(img.get_pixel(x, y).0);
+                    }
+                }
             }
         }
         band_colors.push((*b, seen.len()));
         if seen.len() < b.min_colors {
+            let what = match b.axis {
+                Axis::Horizontal => "横带",
+                Axis::Vertical => "竖带",
+            };
             problems.push(format!(
-                "带 [{:.2},{:.2}]（像素行 {y0}..{y1}）只有 {} 种颜色，下限 {}：这一条横带几乎是空的",
-                b.top,
-                b.bottom,
+                "{what} [{:.2},{:.2}]（像素 {a}..{z}）只有 {} 种颜色，下限 {}：这一条{what}几乎是空的",
+                b.from,
+                b.to,
                 seen.len(),
                 b.min_colors
             ));
@@ -185,7 +231,14 @@ fn selftest() -> i32 {
             255,
         ]
     };
-    let bottom_band = Band::parse("0.85:1.0:8").expect("带语法");
+    let bottom_band = Band::parse(Axis::Horizontal, "0.85:1.0:8").expect("带语法");
+    let right_band = Band::parse(Axis::Vertical, "0.92:1.0:8").expect("竖带语法");
+    let four_bands = [
+        Band::parse(Axis::Horizontal, "0.00:0.05:8").expect("带语法"),
+        Band::parse(Axis::Horizontal, "0.40:0.60:8").expect("带语法"),
+        Band::parse(Axis::Horizontal, "0.88:0.96:8").expect("带语法"),
+        Band::parse(Axis::Horizontal, "0.97:1.00:8").expect("带语法"),
+    ];
 
     // 1. 纯色图必须判红。
     let solid = dir.join("solid.png");
@@ -201,15 +254,16 @@ fn selftest() -> i32 {
         Err(e) => bad.push(format!("纯色图连解码都没过，夹具自己坏了：{e}")),
     }
 
-    // 2. 多色图必须判绿（包括带检查）。
+    // 2. 多色图必须判绿（包括两个方向的带检查）。
     let full = dir.join("rich.png");
     write_png(&full, w, h, rich);
-    match check(&full, Some((w, h)), &[bottom_band]) {
+    match check(&full, Some((w, h)), &[bottom_band, right_band]) {
         Ok(r) if r.problems.is_empty() => println!(
-            "selftest rich: 已正确判绿（颜色数={} 背景占比={:.4} 底带颜色数={}）",
+            "selftest rich: 已正确判绿（颜色数={} 背景占比={:.4} 底带={} 右带={}）",
             r.distinct,
             r.bg_ratio,
-            r.band_colors.first().map(|(_, n)| *n).unwrap_or(0)
+            r.band_colors.first().map(|(_, n)| *n).unwrap_or(0),
+            r.band_colors.get(1).map(|(_, n)| *n).unwrap_or(0)
         ),
         Ok(r) => bad.push(format!("多色图被判红，这是一台假红工厂：{:?}", r.problems)),
         Err(e) => bad.push(format!("多色图解不开：{e}")),
@@ -226,7 +280,7 @@ fn selftest() -> i32 {
 
     // 4. **底部留白的变异体**：上方有内容、底部纯黑。
     //    先证明旧的三条检查**真的看不见它**（否则新加这条带检查未被证明有必要），
-    //    再证明带检查能抓到。
+    //    再证明带检查能拓到。
     let cut = (h as f64 * 0.85) as u32;
     let padded = dir.join("bottom-blank.png");
     write_png(&padded, w, h, |x, y| {
@@ -258,10 +312,45 @@ fn selftest() -> i32 {
         Err(e) => bad.push(format!("带检查读图失败：{e}")),
     }
 
-    // 5. 带语法本身的错误要报，不能默默当成默认值。
+    // 5. **右侧置空的变异体**：右边一条纯色，其余有内容。跳转面板根本没画
+    //    就是这个形状。先证明**四条横带加整图指标全部看不见它**，再证明竖带能拓到。
+    let right_cut = (w as f64 * 0.92) as u32;
+    let blank_right = dir.join("right-blank.png");
+    write_png(&blank_right, w, h, |x, y| {
+        if x >= right_cut {
+            [0, 0, 0, 255]
+        } else {
+            rich(x, y)
+        }
+    });
+    match check(&blank_right, Some((w, h)), &four_bands) {
+        Ok(r) if r.problems.is_empty() => println!(
+            "selftest right-blank: 已确认横带与整图指标看不见右侧置空（颜色数={} 背景占比={:.4}）",
+            r.distinct, r.bg_ratio
+        ),
+        Ok(r) => bad.push(format!(
+            "右侧置空被横带拓到了，那么竖带未被证明有必要：{:?}",
+            r.problems
+        )),
+        Err(e) => bad.push(format!("右侧置空图解不开：{e}")),
+    }
+    match check(&blank_right, Some((w, h)), &[right_band]) {
+        Ok(r) if r.problems.is_empty() => {
+            bad.push(String::from("竖带没拓到右侧置空，它是装饰"))
+        }
+        Ok(r) => println!(
+            "selftest right-blank + vband: 已正确判红（右带颜色数={}）",
+            r.band_colors.first().map(|(_, n)| *n).unwrap_or(0)
+        ),
+        Err(e) => bad.push(format!("竖带读图失败：{e}")),
+    }
+
+    // 6. 带语法本身的错误要报，不能默默当成默认值。两个方向都要验。
     for bogus in ["1.0:0.5:8", "abc", "0.1:0.2", "0.1:2.0:8"] {
-        if Band::parse(bogus).is_ok() {
-            bad.push(format!("非法的带语法 {bogus:?} 被接受了"));
+        for axis in [Axis::Horizontal, Axis::Vertical] {
+            if Band::parse(axis, bogus).is_ok() {
+                bad.push(format!("非法的{}语法 {bogus:?} 被接受了", axis.label()));
+            }
         }
     }
 
@@ -283,7 +372,9 @@ fn main() {
         std::process::exit(selftest());
     }
     if args.is_empty() {
-        eprintln!("用法：yi-shotcheck <a.png> […] [--size WxH] [--band 上:下:颜色数]… | --selftest");
+        eprintln!(
+            "用法：yi-shotcheck <a.png> … [--size WxH] [--band 上:下:颜色数]… [--vband 左:右:颜色数]… | --selftest"
+        );
         std::process::exit(2);
     }
     let mut want: Option<(u32, u32)> = None;
@@ -291,24 +382,29 @@ fn main() {
     let mut files: Vec<PathBuf> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        match a.as_str() {
-            "--size" => {
-                let v = it.next().cloned().unwrap_or_default();
-                let (w, h) = v.split_once('x').unwrap_or(("0", "0"));
-                want = Some((w.parse().unwrap_or(0), h.parse().unwrap_or(0)));
-            }
-            "--band" => {
-                let v = it.next().cloned().unwrap_or_default();
-                match Band::parse(&v) {
-                    Ok(b) => bands.push(b),
-                    Err(e) => {
-                        eprintln!("SHOTCHECK FAILED: {e}");
-                        std::process::exit(2);
-                    }
+        let axis = match a.as_str() {
+            "--band" => Some(Axis::Horizontal),
+            "--vband" => Some(Axis::Vertical),
+            _ => None,
+        };
+        if let Some(axis) = axis {
+            let v = it.next().cloned().unwrap_or_default();
+            match Band::parse(axis, &v) {
+                Ok(b) => bands.push(b),
+                Err(e) => {
+                    eprintln!("SHOTCHECK FAILED: {e}");
+                    std::process::exit(2);
                 }
             }
-            _ => files.push(PathBuf::from(a)),
+            continue;
         }
+        if a == "--size" {
+            let v = it.next().cloned().unwrap_or_default();
+            let (w, h) = v.split_once('x').unwrap_or(("0", "0"));
+            want = Some((w.parse().unwrap_or(0), h.parse().unwrap_or(0)));
+            continue;
+        }
+        files.push(PathBuf::from(a));
     }
 
     let mut failed = 0usize;
@@ -318,7 +414,9 @@ fn main() {
                 let band_txt: Vec<String> = r
                     .band_colors
                     .iter()
-                    .map(|(b, n)| format!("band[{:.2},{:.2}]={n}", b.top, b.bottom))
+                    .map(|(b, n)| {
+                        format!("{}[{:.2},{:.2}]={n}", b.axis.label(), b.from, b.to)
+                    })
                     .collect();
                 println!(
                     "{}: {}x{} distinct_colors={} bg_ratio={:.4} {}",
