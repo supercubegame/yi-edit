@@ -200,6 +200,29 @@ impl Editor {
         if let Some(d) = self.doc_mut() { d.commit_undo_group(); }
     }
 
+    pub fn can_undo(&self) -> bool { self.doc().map(|d| d.can_undo()).unwrap_or(false) }
+    pub fn can_redo(&self) -> bool { self.doc().map(|d| d.can_redo()).unwrap_or(false) }
+
+    /// 撤销一**组**，并把光标放到被改动的地方。
+    ///
+    /// 为什么不让 UI 直接调 `doc_mut().undo()`：那样光标与高亮缓存的失效就散在 GUI 里，
+    /// 而快闸门碰不到 GUI。忘了失效的后果不是报错，是撤销之后高亮颜色停在旧状态上。
+    pub fn undo(&mut self) -> Option<Pos> {
+        let pos = self.doc_mut()?.undo()?;
+        self.cursor = pos;
+        self.anchor = None;
+        self.invalidate_states(pos.line);
+        Some(pos)
+    }
+
+    pub fn redo(&mut self) -> Option<Pos> {
+        let pos = self.doc_mut()?.redo()?;
+        self.cursor = pos;
+        self.anchor = None;
+        self.invalidate_states(pos.line);
+        Some(pos)
+    }
+
     pub fn selected_text(&mut self) -> Option<String> {
         let (a, b) = self.selection()?;
         if a.line == b.line {
