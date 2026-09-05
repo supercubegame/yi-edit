@@ -17,6 +17,10 @@ const SHAPES: &[(u32, usize)] = &[
     (7, 1_000_000),
 ];
 
+/// 顶部与底部两个像素是显式夹的，所以往返断言对它们豁免。
+/// **每种形状最多两个像素**，所以总数有上限；豁免范围一旦漂大，下面那条会红。
+const MAX_CLAMP_EXEMPTIONS: usize = 2 * SHAPES.len();
+
 /// 不能服务的几何直接拒，而不是拿一个像素去假装。
 /// 两侧都断：1px 必须被拒，2px 必须被接受 —— 否则这个下限会静默往上漂。
 #[test]
@@ -27,22 +31,30 @@ fn geometry_that_cannot_be_served_is_refused() {
     assert!(JumpMap::new(1, 1).is_none(), "1px 面板应该被拒");
     assert!(JumpMap::new(1, 1000).is_none(), "1px 面板应该被拒");
     // 2px：下限就在这里，必须被接受。
-    assert!(JumpMap::new(MIN_PANEL_PX, 1000).is_some(), "{MIN_PANEL_PX}px 应该被接受");
+    assert!(
+        JumpMap::new(MIN_PANEL_PX, 1000).is_some(),
+        "{MIN_PANEL_PX}px 应该被接受"
+    );
     assert_eq!(MIN_PANEL_PX, 2, "下限漂了，上面两侧的断言就不再夹着它了");
 }
 
 /// 承重：往返一致。line -> band 中点 -> line 必须回到原行。
-/// 行比像素多时多行共享一个像素，那种退化带跳过（它在面板上本来就画不出来）。
 ///
-/// 下限 400 是从**实测值 491** 往下留的余量。上一版拍了 1000，它第一次就红了 ——
-/// 拍的数字就是这么红的。实测值会打印出来，下一轮可以拿它收紧。
+/// 两类豁免，每类都单独计数并有上下限（否则豁免范围会静默变大，而那正是
+/// 把一条断言改成装饰的典型手法）：
+/// - **退化带**（top == bottom）：行比像素多时多行挤一个像素，它们在面板上本来就画不出来。
+/// - **被夹的两个像素**（mid == 0 或 mid == h-1）：顶/底显式夹到文首/文末，
+///   而 h < n 时那两个像素的带主可能不是第 0 / 最后一行。这是有意的取舍：
+///   拖到顶要到文首比「顶部那一像素往返一致」重要。
+///
+/// 下限 400 是从**实测值 491** 往下留的余量。上一版拍了 1000，它第一次就红了。
 #[test]
 fn line_to_band_to_line_round_trips() {
     let mut checked = 0usize;
     let mut collapsed = 0usize;
+    let mut clamped = 0usize;
     for (h, n) in SHAPES {
         let m = JumpMap::new(*h, *n).expect("合法几何");
-        // 行数很大时只抽样，但边界一定要在里面。
         let mut probes: Vec<usize> = vec![0, n - 1];
         let step = (n / 500).max(1);
         let mut i = 0usize;
@@ -59,6 +71,10 @@ fn line_to_band_to_line_round_trips() {
                 continue;
             }
             let mid = top + (bottom - top) / 2;
+            if mid == 0 || mid == h - 1 {
+                clamped += 1;
+                continue;
+            }
             assert_eq!(
                 m.line_at(mid),
                 line,
@@ -67,10 +83,15 @@ fn line_to_band_to_line_round_trips() {
             checked += 1;
         }
     }
-    println!("往返实测：非退化带 {checked} 次，退化带 {collapsed} 次");
+    println!("往返实测：校过 {checked} 次，退化带 {collapsed} 次，被夹像素 {clamped} 次");
     assert!(checked > 400, "只真正校了 {checked} 次往返（实测基线 491），语料缩水了");
     // 夹具自证：「多行挤一像素」那种形状真的被压到了。
     assert!(collapsed > 100, "只碰到 {collapsed} 个退化带，那一分支在测空气");
+    // 豁免不得漂大：每种形状最多两个像素。
+    assert!(
+        clamped <= MAX_CLAMP_EXEMPTIONS,
+        "被夹像素豁免了 {clamped} 次，上限 {MAX_CLAMP_EXEMPTIONS}（每种形状最多两个）"
+    );
 }
 
 /// band 必须单调不减且无缝：前一行的 bottom 等于后一行的 top。
@@ -107,7 +128,8 @@ fn first_and_last_line_are_both_reachable() {
 }
 
 /// 顶/底那两个夹在 h >= n 时必须是**空操作** —— 否则它们就不是在修退化情形，
-/// 而是在改写正常情形的结果，那会把往返一致弄坏而且不报错。
+/// 而是在改写正常情形的结果。（h < n 时它们确实改写结果，那是有意的：
+/// 拖到顶要到文首。往返断言里那两个像素已经显式记清了。）
 #[test]
 fn the_edge_clamps_are_no_ops_when_pixels_outnumber_lines() {
     fn binary_search_only(h: u32, n: usize, y: u32) -> usize {
