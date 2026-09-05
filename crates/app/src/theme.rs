@@ -1,6 +1,7 @@
 //! macOS 深色风格的颜色与尺寸。集中在一处，因为这些数字彼此耦合：
 //! 面板宽度、分割线、行号栏宽度与行号位数改一个就要重算另一个，
 //! 否则行号会与正文叠在一起 —— 而那一点只有看截图才发现得了。
+//! crates/meta/tests/ui_layout.rs 里每条耦合关系都有一条断言。
 
 use egui::Color32;
 
@@ -29,15 +30,16 @@ pub const CURRENT_LINE: Color32 = Color32::from_rgb(0x26, 0x26, 0x28);
 /// 光标。
 pub const CARET: Color32 = Color32::from_rgb(0xff, 0xd6, 0x60);
 
-/// 工具栏 / 状态栏 高度。
+/// 工具栏 / 查找栏 / 状态栏 高度。
 pub const TOOLBAR_H: f32 = 44.0;
 pub const FINDBAR_H: f32 = 36.0;
 pub const STATUS_H: f32 = 26.0;
-/// 侧边栏宽度。
-pub const SIDEBAR_W: f32 = 220.0;
-pub const JUMP_W: f32 = 96.0;
+/// 侧边栏宽度。**与 main.rs 里的最小窗口宽度耦合**：
+/// SIDEBAR_W + JUMP_W + GUTTER_W 必须小于最小窗口宽的一半，
+/// 否则把窗口缩到最小时编辑区只剩一条缝。上一版 220+96+72=388 > 720/2，它真的红了。
+pub const SIDEBAR_W: f32 = 200.0;
+pub const JUMP_W: f32 = 80.0;
 /// 行号栏宽度。**与 `LINE_NO_DIGITS` 耦合**：改一个必须重算另一个。
-/// crates/meta/tests/ui_layout.rs 里有一条等号断言钉着。
 pub const GUTTER_W: f32 = 72.0;
 pub const LINE_NO_DIGITS: usize = 6;
 /// 圆角半径（macOS 控件的观感）。
