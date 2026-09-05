@@ -9,14 +9,20 @@
 //! 而快闸门故意不编 GUI，于是这堆承重逻辑一条断言都没有。搬出来之后它进了快闸门。
 #![forbid(unsafe_code)]
 
+pub mod browser;
+pub mod jump;
+pub mod status;
+
 use std::io;
 use std::path::{Path, PathBuf};
 
 use yi_edit_core::{
-    highlight_line, lang_from_path, Doc, Lang, LineIndex, LineState, Pos, SearchOptions,
+    highlight_line, lang_from_path, Doc, Eol, Lang, LineIndex, LineState, Pos, SearchOptions,
     HUGE_FILE_THRESHOLD, MAX_PATTERN_LEN,
 };
 use yi_edit_fileio as fio;
+
+pub use status::StatusBar;
 
 /// 搜索结果上限。到顶之后必须报 truncated，不能静默截断。
 pub const MAX_HITS: usize = 5000;
@@ -29,6 +35,8 @@ pub enum Source {
     Huge {
         path: PathBuf,
         index: LineIndex,
+        /// 磁盘上的字节数。只读模式下状态栏用它；重算一遍要整文件扫一遗。
+        bytes: usize,
         /// 缓存的可见窗口，避免每帧都去碰磁盘。
         cache_from: usize,
         cache_lines: Vec<String>,
@@ -79,6 +87,7 @@ impl Editor {
                 source: Source::Huge {
                     path: path.to_path_buf(),
                     index,
+                    bytes: meta.len as usize,
                     cache_from: 0,
                     cache_lines: Vec::new(),
                 },
@@ -135,6 +144,45 @@ impl Editor {
         }
     }
 
+    /// 当前内容的字节数。内存模式下随编辑变（用户看的就是这个），
+    /// 只读模式下取打开时的磁盘尺寸（重算要整文件扫一遗）。
+    pub fn byte_len(&self) -> usize {
+        match &self.source {
+            Source::Memory(d) => d.to_text().len(),
+            Source::Huge { bytes, .. } => *bytes,
+        }
+    }
+
+    /// 底部状态栏的内容。放在会话层而不是 UI 里：它显示错一个数字不会报错，
+    /// 而用户会信它。
+    pub fn status_bar(&mut self) -> StatusBar {
+        let cursor = self.cursor;
+        let cursor_line = self.line(cursor.line);
+        let column = status::char_column(&cursor_line, cursor.col);
+        let selected_chars = self.selection().and_then(|(a, b)| {
+            // 只有内存模式拿得到整份行集合；只读模式下不假装能算跨行选区字符数。
+            self.doc()
+                .map(|d| status::selected_chars(d.lines(), a, b))
+        });
+        StatusBar {
+            name: self
+                .path
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| String::from("未命名")),
+            line: cursor.line + 1,
+            column,
+            total_lines: self.line_count(),
+            total_bytes: self.byte_len(),
+            selected_chars,
+            eol: self.doc().map(|d| d.eol()).unwrap_or(Eol::Lf),
+            lang: self.lang,
+            read_only: self.is_huge(),
+            dirty: self.doc().map(|d| d.is_dirty()).unwrap_or(false),
+        }
+    }
+
     /// 拉一行文本。大文件模式下可能要碰磁盘，所以需要 &mut self。
     pub fn line(&mut self, i: usize) -> String {
         match &mut self.source {
@@ -144,6 +192,7 @@ impl Editor {
                 index,
                 cache_from,
                 cache_lines,
+                ..
             } => {
                 if i < *cache_from || i >= *cache_from + cache_lines.len() {
                     let from = i.saturating_sub(WINDOW_LINES / 4);
@@ -301,9 +350,11 @@ impl Editor {
                 let p = path.clone();
                 let n = fio::replace_in_place(&p, needle.as_bytes(), repl.as_bytes(), opts)?;
                 let index = fio::index_lines(&p)?;
+                let bytes = fio::info(&p)?.len as usize;
                 self.source = Source::Huge {
                     path: p,
                     index,
+                    bytes,
                     cache_from: 0,
                     cache_lines: Vec::new(),
                 };
