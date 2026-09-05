@@ -104,7 +104,7 @@ impl Editor {
     pub fn new_file(&mut self) {
         self.path = None;
         self.source = Source::Memory(Doc::new());
-        self.lang = Lang::Text;
+        self.lang = Lang::PlainText;
         self.cursor = Pos::default();
         self.anchor = None;
         self.states.clear();
