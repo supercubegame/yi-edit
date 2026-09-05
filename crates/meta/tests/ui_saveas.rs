@@ -6,6 +6,12 @@
 //!
 //! 两条都只能用结构断言守：它们在 GUI 事件循环里，而快闸门不编 GUI。
 //! 结构断言验不了行为，但它至少能验「守卫还在不在」。
+//!
+//! **这份文件自己第一版就踩了那个坑：** 锢点拿的是按钮文字，而同一串文字在上方的
+//! 文档注释里也出现过，于是切出来的“那一段”从注释一直延到几百行之后——
+//! 负向那条仍然绿，但绿的理由变成了“跨度太大所以没命中”。
+//! 修法：锢点一律用**代码形状**（`ui.button("…")`、`fn f(&mut self)`），
+//! 并且先断言它在全文里**只出现一次**。
 
 use yi_edit_meta as meta;
 
@@ -23,38 +29,56 @@ fn compiled_ui() -> String {
 }
 
 /// 从 `needle` 开始到下一个 `stop` 之前的那一段。
-/// 「某段里有没有 X」必须先把那段切出来：全文搜的话，别的按钮里的
-/// `force_close` 会让这条断言误报，而误报会逐人去改产品迎合尺子。
+///
+/// `needle` 必须在全文里只出现一次：否则切出来的跨度不是我以为的那一段，
+/// 而一个跨度太大的区间会让负向断言免费通过。
 fn segment(src: &str, needle: &str, stop: &str) -> String {
-    let start = src
-        .find(needle)
-        .unwrap_or_else(|| panic!("编译进去的 UI 里找不到：{needle}"));
+    let n = src.matches(needle).count();
+    assert_eq!(
+        n, 1,
+        "锢点 {needle:?} 在全文里出现 {n} 次，切出来的跨度不可信"
+    );
+    let start = src.find(needle).expect("上面已经数过了");
     let rest = &src[start + needle.len()..];
     let end = rest.find(stop).unwrap_or(rest.len());
-    rest[..end].to_string()
+    let seg = rest[..end].to_string();
+    assert!(
+        !seg.is_empty(),
+        "切出来的那一段是空的，后面每条断言都会免费通过"
+    );
+    seg
 }
 
 #[test]
 fn save_and_quit_only_quits_when_the_save_really_succeeded() {
     let src = compiled_ui();
-    // “保存并退出”那一段，到下一个按钮为止。
-    let seg = segment(&src, "保存并退出", "不保存退出");
-    assert!(
-        seg.contains("save_current()"),
-        "「保存并退出」没走那个会报告成败的保存路径：{seg}"
+    let seg = segment(
+        &src,
+        "ui.button(\"保存并退出\")",
+        "ui.button(\"不保存退出\")",
     );
     assert!(
         seg.contains("&& self.save_current()"),
         "「保存并退出」没拿保存结果做门禁，保存失败也会退（用户的字就没了）：{seg}"
     );
-    // 负向：那一段里不得出现把错误丢掉的写法。
+    // 负向：那一段里不得把保存的错误丢掉。
     assert!(
         !seg.contains("let _ = self.ed.save()"),
         "那一段里把保存的错误丢掉了，于是它又变成了无条件退出：{seg}"
     );
+    // 跨度自证：这一段应该就是那一个按钮，而不是半个文件。
+    assert!(
+        seg.lines().count() <= 8,
+        "切出来的那一段有 {} 行，跨度太大，负向断言会免费通过",
+        seg.lines().count()
+    );
 
     // 对照侧：“不保存退出”本来就应该无条件退。两侧一样的话，上面那条只是在匹配一个字符串。
-    let discard = segment(&src, "不保存退出", "取消");
+    let discard = segment(
+        &src,
+        "ui.button(\"不保存退出\")",
+        "ui.button(\"取消\")",
+    );
     assert!(
         discard.contains("force_close = true") && !discard.contains("save_current()"),
         "「不保存退出」居然也要先保存，那两个按钮就没区别了：{discard}"
@@ -65,7 +89,11 @@ fn save_and_quit_only_quits_when_the_save_really_succeeded() {
 #[test]
 fn saving_without_a_path_falls_back_to_save_as() {
     let src = compiled_ui();
-    let seg = segment(&src, "fn save_current", "fn save_as_typed");
+    let seg = segment(
+        &src,
+        "fn save_current(&mut self) -> bool",
+        "fn save_as_typed(&mut self) -> bool",
+    );
     assert!(
         seg.contains("self.ed.path.is_some()") && seg.contains("save_as("),
         "save_current 没处理「还没有路径」那个分支：{seg}"
@@ -80,7 +108,7 @@ fn saving_without_a_path_falls_back_to_save_as() {
 #[test]
 fn new_file_refuses_to_discard_unsaved_work() {
     let src = compiled_ui();
-    let seg = segment(&src, "fn new_file", "fn insert");
+    let seg = segment(&src, "fn new_file(&mut self)", "fn insert(&mut self");
     assert!(
         seg.contains("is_dirty()"),
         "新建没问过有没有未保存的修改：{seg}"
@@ -102,7 +130,11 @@ fn the_session_layer_backs_those_entry_points() {
             "会话层里没有 {needle}"
         );
     }
-    let save_as = segment(&src, "pub fn save_as", "fn write_to");
+    let save_as = segment(
+        &src,
+        "pub fn save_as(&mut self, path: &Path)",
+        "fn write_to(&mut self, path: &Path)",
+    );
     assert!(
         save_as.contains("lang_from_path"),
         "另存为没重新认语言，另存成 .rs 之后颜色会一直停在旧语言上：{save_as}"
