@@ -4,6 +4,8 @@
 //! O(n) 的内存搬动，每敲一下键搬一遍。按行存之后，行内编辑只动那一行。
 //!
 //! 撤销不存快照存**算子**：快照在大文件上是災难，而算子可逆。
+//! 但算子里存的必须是**真正被删掉的文本**，不是当时的搜索词 —— 大小写不敏感替换下
+//! 两者不相等，而差异只在撤销之后才看得见。crates/core/tests/edit.rs 里有断言钉着。
 pub use crate::consts::MAX_UNDO;
 use crate::search::{self, SearchOptions};
 
@@ -20,16 +22,11 @@ impl Pos {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Eol {
+    #[default]
     Lf,
     Crlf,
-}
-
-impl Default for Eol {
-    fn default() -> Self {
-        Eol::Lf
-    }
 }
 
 impl Eol {
@@ -306,12 +303,14 @@ impl Doc {
         let hits = self.find_all(needle, opts);
         let mut n = 0usize;
         for (from, to) in hits.into_iter().rev() {
-            self.apply_delete(from, to);
+            // 这里必须用 apply_delete 返回的真实文本：大小写不敏感时它与 needle 不相等，
+            // 拿 needle 当撤销记录会把 Foo/FOO 全部还原成 foo，而且只在撤销后才看得见。
+            let removed = self.apply_delete(from, to);
             let end = self.apply_insert(from, repl);
             self.push_undo(EditOp::Delete {
                 from,
                 to,
-                text: needle.to_string(),
+                text: removed,
             });
             self.push_undo(EditOp::Insert {
                 at: from,

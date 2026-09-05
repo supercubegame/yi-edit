@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use yi_edit_core::{find_all, replace_all, LineIndex, SearchOptions, HUGE_FILE_THRESHOLD};
 use yi_edit_fileio as fio;
 
-/// 不拉 tempfile 依赖：用进程号 + 计数器做唯一目录，结束时自己清。
+/// 不拉 tempfile 依赖：用进程号 + 标签做唯一目录，结束时自己清。
 struct Tmp(PathBuf);
 
 impl Tmp {
@@ -32,19 +32,26 @@ impl Drop for Tmp {
     }
 }
 
+/// 含 LF、CRLF、空行、多字节字符、末尾无换行。
+/// 字节串字面量里不能写非 ASCII，所以中文用十六进制转义（“中文”）。
 const MIXED: &[u8] = b"line0\nline1\r\n\n\xe4\xb8\xad\xe6\x96\x87 foo\nfoo bar\nlast foo";
 
 #[test]
 fn atomic_save_round_trips_and_leaves_no_temp_file() {
     let t = Tmp::new("atomic");
     let p = t.file("a.txt", b"before");
-    fio::save_atomic(&p, b"after\n中文".as_ref()).expect("保存");
-    assert_eq!(fio::read_all(&p).unwrap(), b"after\n中文");
+    let payload = "after\n中文";
+    fio::save_atomic(&p, payload.as_bytes()).expect("保存");
+    assert_eq!(fio::read_all(&p).unwrap(), payload.as_bytes());
     let left: Vec<String> = fs::read_dir(&t.0)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
         .collect();
-    assert_eq!(left, vec!["a.txt".to_string()], "保存后目录里不应该还有临时文件：{left:?}");
+    assert_eq!(
+        left,
+        vec!["a.txt".to_string()],
+        "保存后目录里不应该还有临时文件：{left:?}"
+    );
 }
 
 /// 承重：文件级行索引（分块读）必须等于内存级行索引，对每一种块大小。
@@ -72,7 +79,9 @@ fn read_range_returns_the_same_bytes_as_slicing() {
         }
     }
     // 越过文件尾要返回空，不是报错也不是一堆零字节。
-    assert!(fio::read_range(&p, MIXED.len() as u64 + 10, 8).unwrap().is_empty());
+    assert!(fio::read_range(&p, MIXED.len() as u64 + 10, 8)
+        .unwrap()
+        .is_empty());
 }
 
 /// 承重：文件级流式搜索的偏移必须等于内存级 find_all，对每一种块大小。
@@ -80,7 +89,7 @@ fn read_range_returns_the_same_bytes_as_slicing() {
 fn file_search_equals_in_memory_search_for_every_chunk_size() {
     let t = Tmp::new("search");
     let p = t.file("m.txt", MIXED);
-    for (needle, opts) in [
+    let cases: Vec<(&str, SearchOptions)> = vec![
         ("foo", SearchOptions::exact()),
         (
             "FOO",
@@ -97,12 +106,16 @@ fn file_search_equals_in_memory_search_for_every_chunk_size() {
             },
         ),
         ("中文", SearchOptions::exact()),
-    ] {
+    ];
+    for (needle, opts) in cases {
         let want: Vec<u64> = find_all(MIXED, needle.as_bytes(), opts)
             .into_iter()
             .map(|x| x as u64)
             .collect();
-        assert!(!want.is_empty(), "needle={needle} 在语料里没命中，这条断言会变成空的");
+        assert!(
+            !want.is_empty(),
+            "needle={needle} 在语料里没命中，这条断言会变成空的"
+        );
         for chunk in 1..=MIXED.len() {
             let (got, truncated) =
                 fio::find_offsets_chunked(&p, needle.as_bytes(), opts, 0, chunk).unwrap();
@@ -131,7 +144,12 @@ fn hitting_the_limit_is_reported_not_silently_truncated() {
 #[test]
 fn file_replace_equals_in_memory_replace_for_every_chunk_size() {
     let t = Tmp::new("replace");
-    for (needle, repl) in [("foo", "XXXX"), ("foo", ""), ("中文", "英文"), ("line", "L")] {
+    for (needle, repl) in [
+        ("foo", "XXXX"),
+        ("foo", ""),
+        ("中文", "英文"),
+        ("line", "L"),
+    ] {
         let (want, want_n) = replace_all(
             MIXED,
             needle.as_bytes(),

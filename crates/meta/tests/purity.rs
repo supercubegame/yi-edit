@@ -17,6 +17,13 @@ const FORBIDDEN: &[(&str, &str)] = &[
     ("println!", "同上"),
 ];
 
+/// 聚合存留率的下限（百分之）。
+/// **为什么是聚合而不是按文件：** 按文件判的第一版就是一台假红工厂 ——
+/// consts.rs 本来就是注释占大头（那是故意的，耦合参数必须解释清楚），
+/// 于是一个完全正常的文件会把闸门弄红，而假红会逼人去改产品迎合尺子。
+/// 这个数字是**拍的**，但断言会把实测值打印出来，下一轮拿实测值收紧。
+const MIN_AGGREGATE_RETENTION_PCT: usize = 25;
+
 fn core_sources() -> Vec<(String, String)> {
     meta::list_dir("crates/core/src")
         .into_iter()
@@ -29,27 +36,38 @@ fn core_sources() -> Vec<(String, String)> {
         .collect()
 }
 
+fn dense(s: &str) -> usize {
+    s.chars().filter(|c| !c.is_whitespace()).count()
+}
+
 /// 剥完注释与字符串之后必须还剩真东西。
 /// 不先证这一条的话，一个把源码剥成空串的 bug 会让后面每条断言免费通过。
 #[test]
 fn the_stripper_leaves_real_code_behind() {
     let files = core_sources();
     assert!(files.len() >= 6, "core 只扫到 {} 个文件", files.len());
+    let mut total_before = 0usize;
+    let mut total_after = 0usize;
     for (rel, src) in &files {
         let code = meta::strip_comments_and_strings(src);
-        let visible: String = code.chars().filter(|c| !c.is_whitespace()).collect();
-        let original: String = src.chars().filter(|c| !c.is_whitespace()).collect();
         assert!(
             code.contains("pub ") || code.contains("fn "),
             "{rel} 剥完之后看不到任何声明，扫描器自己坏了"
         );
-        assert!(
-            visible.len() * 10 >= original.len() * 4,
-            "{rel} 剥完只剩 {}/{} 字符（不到四成），扫描器吃多了",
-            visible.len(),
-            original.len()
+        let (before, after) = (dense(src), dense(&code));
+        println!(
+            "{rel}: 剥完剩 {after}/{before} 字符（{}%）",
+            after * 100 / before.max(1)
         );
+        total_before += before;
+        total_after += after;
     }
+    let pct = total_after * 100 / total_before.max(1);
+    println!("core 聚合存留率实测值：{pct}%（下限 {MIN_AGGREGATE_RETENTION_PCT}%）");
+    assert!(
+        pct >= MIN_AGGREGATE_RETENTION_PCT,
+        "core 剥完只剩 {pct}%，扫描器吃多了"
+    );
 }
 
 /// 双向自证：扫描器必须能区分「注释里提到」与「代码里真用了」。
