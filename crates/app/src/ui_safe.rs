@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use yi_edit_core::{highlight_line, Pos, SearchOptions, TokenKind};
 use yi_edit_session::browser::{self, Listing};
+use yi_edit_session::fontpick;
 use yi_edit_session::{Editor, WELCOME};
 
 use crate::ime_adapter::{AdapterEffect, ImeAdapter};
@@ -24,26 +25,31 @@ fn token_color(kind: TokenKind) -> egui::Color32 {
     }
 }
 
-pub fn install_fonts(ctx: &egui::Context) {
-    const CANDIDATES: &[&str] = &[
-        "/System/Library/Fonts/SFNSMono.ttf",
-        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttf",
-        "C:\\Windows\\Fonts\\msyh.ttf",
-    ];
-    let Some((path, bytes)) = CANDIDATES.iter().find_map(|p| {
-        std::fs::read(p).ok().filter(|b| b.len() > 4096).map(|b| (*p, b))
-    }) else {
-        eprintln!("FONT: no CJK font");
-        return;
+/// 字体候选表与覆盖判断全在 `yi_edit_session::fontpick` 里，这一层只负责装。
+/// 在这里再写一张候选表的话就有两份真身，而只有一份有断言守着。
+pub fn install_fonts(ctx: &egui::Context) -> bool {
+    let (picked, rejects) = fontpick::pick(&fontpick::candidates(), fontpick::REQUIRED);
+    let Some(picked) = picked else {
+        // 少了中日韩字体的话整个界面是豆腐块，而那与「正常启动」在日志里长得一模一样。
+        eprintln!("FONT: 本次没有装上任何覆盖中日韩字的字体（不是「字体正常」），界面会出豆腐块");
+        for (path, why) in &rejects {
+            eprintln!("FONT reject {} —— {why}", path.display());
+        }
+        return false;
     };
+    let path = picked.path.clone();
+    let index = picked.index;
+    let mut data = egui::FontData::from_owned(picked.bytes);
+    // 集合（.ttc）里第 0 张脸未必覆盖中文，不传 index 就等于没挑。
+    data.index = index;
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert("cjk".into(), Arc::new(egui::FontData::from_owned(bytes)));
+    fonts.font_data.insert("cjk".into(), Arc::new(data));
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         fonts.families.entry(family).or_default().push("cjk".into());
     }
     ctx.set_fonts(fonts);
-    eprintln!("FONT: {path}");
+    eprintln!("FONT: {} index={index}", path.display());
+    true
 }
 
 pub fn install_style(ctx: &egui::Context) {
