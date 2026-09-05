@@ -27,12 +27,7 @@ impl std::fmt::Display for ReplaceError {
 }
 
 /// 整缓冲区替换。返回新缓冲区和替换次数。
-pub fn replace_all(
-    hay: &[u8],
-    needle: &[u8],
-    repl: &[u8],
-    opts: SearchOptions,
-) -> (Vec<u8>, usize) {
+pub fn replace_all(hay: &[u8], needle: &[u8], repl: &[u8], opts: SearchOptions) -> (Vec<u8>, usize) {
     if needle.is_empty() {
         return (hay.to_vec(), 0);
     }
@@ -50,8 +45,6 @@ pub fn replace_all(
 }
 
 /// 为 whole_word 的**左**边界判断保留的上下文字节数。
-/// 不保留的话，每块的第 0 字节都会被当成「行首/词首」，于是一个被切开的单词
-/// 会被误判成整词匹配。这个坑不会自己喊，靠 tests 里的整词跨块用例抓。
 const CTX: usize = 1;
 
 /// 流式替换器：按块喂进去，边出结果边保留必要的尾部。
@@ -92,9 +85,9 @@ impl StreamReplacer {
     }
 
     /// 必须保留、不能现在就输出的尾部字节数。
+    /// M1：变异体——整词匹配本该多留一个字节判右边界，这里不留了。
     fn hold(&self) -> usize {
-        // 模式可能有 needle.len()-1 个字节已经进来了；整词匹配还要多留 1 个字节判右边界。
-        self.needle.len() - 1 + usize::from(self.opts.whole_word)
+        self.needle.len() - 1
     }
 
     pub fn feed(&mut self, chunk: &[u8]) -> Vec<u8> {
