@@ -1,2 +1,2 @@
-//! 归档：上一版 UI 实现，仅供差异审计，不参与编译入口。
-//! 实时 UI 入口是 `ui_runtime.rs`，不要在这里继续加功能。
+//! Legacy UI snapshot kept only for audit comparison.
+//! The compiled UI entry is ui_safe.rs. Do not add new behavior here.
