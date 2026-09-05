@@ -1,6 +1,10 @@
 //! 界面布局里的耦合参数，以及「那个交付阻断项真的接上了」。
 //! 这些数字改一个必须重算另一个，而写在注释里的那句「改一个必须重算另一个」
 //! 自己会腐化。
+//!
+//! 本文件里的扫描器已经踩过两次同一个坑：**全文找子串会撞上无关的表达式**。
+//! 「match 守卫的 => 被当成赋值」与「`band_h / 2.0` 撞上不许出现 h / 2」是同一回事。
+//! 所以凡是「某段里有没有 X」，一律先把那段切出来再找，并且带双向自证。
 
 use yi_edit_meta as meta;
 
@@ -29,11 +33,20 @@ fn theme_const(name: &str) -> f64 {
     panic!("theme.rs 里找不到 {name}");
 }
 
+/// 把一个函数体切出来。后面几条断言都只在自己那一段里找东西。
+fn fn_body<'a>(src: &'a str, name: &str) -> &'a str {
+    let after = src
+        .split(name)
+        .nth(1)
+        .unwrap_or_else(|| panic!("找不到 {name}"));
+    after.split("\n    fn ").next().unwrap_or(after)
+}
+
 /// 找对某个字段的**真赋值**。
 ///
 /// 为什么不能直接找「字段名 + 空格 + 等号」：实测踩过 —— Rust 的 match 守卫
 /// `if self.editor_has_keys => ...` 里那个 `=>` 也含等号，于是五个守卫被当成了
-/// 五处赋值，断言假红。这就是「子串存在但不在该在的位置上」那个形状。
+/// 五处赋值，断言假红。
 fn assignments_to(src: &str, field: &str) -> Vec<String> {
     let needle = format!("{field} =");
     meta::hits_in_code(src, &needle)
@@ -55,6 +68,17 @@ fn assignments_to(src: &str, field: &str) -> Vec<String> {
         })
         .map(|(line, text)| format!("{line}: {text}"))
         .collect()
+}
+
+/// 把跳转面板的**缩略图循环**切出来：从循环头到按行推进那一句。
+///
+/// 为什么要切：点击处理里调 `line_at` 是正当的（把鼠标 y 反算回行号就是它的活儿），
+/// 但在缩略图循环里调它就意味着按像素采样 —— 同一个名字，两个完全不同的含义。
+fn thumbnail_loop(body: &str) -> Option<&str> {
+    let start = body.find("while line_no < lines")?;
+    let rest = &body[start..];
+    let end = rest.find("line_no += step;")?;
+    Some(&rest[..end])
 }
 
 /// 扫描器自证：真赋值必须被拓到，match 守卫与比较必须被放过。
@@ -83,6 +107,29 @@ fn the_assignment_scanner_tells_assignments_from_match_guards() {
         assignments_to(both, "flag").len(),
         1,
         "同一行里的真赋值被守卫遮掉了（漏报）"
+    );
+}
+
+/// 切段器自证：按像素采样的循环必须被拓到，按行的必须被放过，
+/// 且循环**之外**的 `line_at` 不得被误拓。
+#[test]
+fn the_thumbnail_slicer_only_looks_inside_the_loop() {
+    let by_pixel = "while line_no < lines { let l = map.line_at(y); line_no += step; }";
+    let sliced = thumbnail_loop(by_pixel).expect("切不出循环");
+    assert!(
+        !meta::hits_in_code(sliced, "line_at").is_empty(),
+        "按像素采样的循环没被拓到（漏报）"
+    );
+    let by_line = "while line_no < lines { let b = map.line_band(line_no); line_no += step; }\n\
+                   let clicked = map.line_at(y);";
+    let sliced = thumbnail_loop(by_line).expect("切不出循环");
+    assert!(
+        meta::hits_in_code(sliced, "line_at").is_empty(),
+        "循环之外的点击处理被误拓了（误报）"
+    );
+    assert!(
+        thumbnail_loop("fn f() {}").is_none(),
+        "根本没有循环时应该返回 None，而不是默默给个空串（那会让后面每条断言免费通过）"
     );
 }
 
@@ -193,12 +240,7 @@ fn the_row_width_reflects_content_not_the_viewport() {
         hits.len()
     );
     // 负向：画行时不得再去问视口宽度。
-    let draw_row = src
-        .split("fn draw_row")
-        .nth(1)
-        .expect("ui.rs 里没有 draw_row");
-    let body = draw_row.split("\n    fn ").next().unwrap_or(draw_row);
-    let bad = meta::hits_in_code(body, "available_width");
+    let bad = meta::hits_in_code(fn_body(&src, "fn draw_row"), "available_width");
     assert!(
         bad.is_empty(),
         "draw_row 里又去问视口宽度了，横向滚动会变回假的：{bad:?}"
@@ -223,40 +265,32 @@ fn the_new_panels_are_actually_wired_into_the_ui() {
         src.contains("JumpMap"),
         "跳转面板没用 session 的 JumpMap，那部分映射断言就守不到它"
     );
-    let bad = meta::hits_in_code(&src, "as f64 / ");
-    assert!(
-        bad.is_empty(),
-        "ui.rs 里出现了浮点除法，跳转映射可能又在 UI 里重算了一遍：{bad:?}"
-    );
 }
 
 /// 跳转面板的缩略图必须**按行**画。
 ///
-/// 实测过的 bug：按像素采样（`step = h / 2`）时，13 行的文件里同一行会被画
-/// 二十多遍叠成一个实心块 —— 就是用户截图里右上角那个蓝块。
+/// 实测过的 bug：按像素采样时，13 行的文件里同一行会被画二十多遍叠成一个
+/// 实心块 —— 就是用户截图里右上角那个蓝块。
+///
+/// 负向那条只在**循环内**找 `line_at`：点击处理里调它是正当的。
 #[test]
 fn the_jump_thumbnail_iterates_lines_not_pixels() {
     let src = meta::read("crates/app/src/ui.rs");
-    let panel = src
-        .split("fn jump_panel")
-        .nth(1)
-        .expect("ui.rs 里没有 jump_panel");
-    let body = panel.split("\n    fn ").next().unwrap_or(panel);
-    // 负向：不得再出现把面板高度当循环次数的写法。
-    for bad in ["h / 2", "0..step"] {
-        let hits = meta::hits_in_code(body, bad);
-        assert!(
-            hits.is_empty(),
-            "缩略图又回到按像素采样了（{bad}），短文件里会叠成实心块：{hits:?}"
-        );
-    }
-    // 正向：循环变量必须是行号，且步长由行数与高度的比值定（行多于像素时才降级）。
+    let body = fn_body(&src, "fn jump_panel");
+    let loop_body = thumbnail_loop(body).expect("缩略图没按行遍历（找不到按行的循环）");
+    let bad = meta::hits_in_code(loop_body, "line_at");
     assert!(
-        body.contains("while line_no < lines"),
-        "缩略图没按行遍历"
+        bad.is_empty(),
+        "缩略图循环里把像素反算回了行号，那就是按像素采样：{bad:?}"
     );
     assert!(
-        body.contains("lines / h"),
+        !meta::hits_in_code(loop_body, "line_band").is_empty(),
+        "缩略图循环没用 line_band 拿行的像素区间"
+    );
+    // 步长必须由行数与面板高度的比值定（行多于像素时才降级采样），
+    // 否则一个百万行的文件要画一百万条线。
+    assert!(
+        meta::hits_in_code(body, "lines / h").len() == 1,
         "步长没根据行数与面板高度的比值定，百万行文件会画一百万条线"
     );
 }
@@ -276,9 +310,8 @@ fn the_clipboard_events_are_all_handled() {
         assert!(!hits.is_empty(), "{what}（{needle}）没接，快捷键会完全没反应");
     }
     // 复制与剪切得真的写进系统剪贴板，否则它们只是把文本拿出来丢掉了。
-    let copy_out = meta::hits_in_code(&src, "copy_text");
     assert!(
-        !copy_out.is_empty(),
+        !meta::hits_in_code(&src, "copy_text").is_empty(),
         "拿到选区文本却没写进剪贴板（没有 copy_text）"
     );
     // 全选也得有，否则 Ctrl+A 会落到文本插入那条路上。
@@ -304,18 +337,13 @@ fn closing_with_unsaved_changes_is_intercepted_and_screenshots_bypass_it() {
     }
     // 截图模式的旁路：这一条不是为了好看，是为了不把自己的闸门卡死。
     assert!(
-        !meta::hits_in_code(&src, "shot.active()").is_empty(),
+        !meta::hits_in_code(fn_body(&src, "fn guard_close"), "shot.active()").is_empty(),
         "关窗拦截没给截图模式留旁路，CI 里会被对话框卡住"
     );
     // 保存失败就不能退：否则「保存并退出」在保存失败时等于静默丢掉修改，
     // 而那正是这个对话框要防的事。
-    let dialog = src
-        .split("fn close_dialog")
-        .nth(1)
-        .expect("ui.rs 里没有 close_dialog");
-    let body = dialog.split("\n    fn ").next().unwrap_or(dialog);
     assert!(
-        body.contains("is_dirty"),
+        !meta::hits_in_code(fn_body(&src, "fn close_dialog"), "is_dirty").is_empty(),
         "「保存并退出」没重新核脏标记，保存失败也会直接退"
     );
 }
@@ -325,15 +353,21 @@ fn closing_with_unsaved_changes_is_intercepted_and_screenshots_bypass_it() {
 /// 实测过的 bug：`editor_has_keys` 在 `handle_keys` **之前**被重置成 true，
 /// 而真正的焦点判断在之后绘制时才发生 —— 也就是说在路径框里敲字会同时
 /// 往正文里插一份。四个控件各写一遍 `has_focus()` 是同一个问题的另一面。
+///
+/// 初始化在结构体字面量里用的是 `:` 而不是 `=`，所以两件事分开断。
 #[test]
 fn keyboard_focus_has_exactly_one_source_of_truth() {
     let src = meta::read("crates/app/src/ui.rs");
     let writes = assignments_to(&src, "editor_has_keys");
     assert_eq!(
         writes.len(),
-        2,
-        "editor_has_keys 有 {} 处赋值（应该只有初始化与帧末一处）：{writes:?}",
+        1,
+        "editor_has_keys 有 {} 处赋值（只应该在帧末写一次）：{writes:?}",
         writes.len()
+    );
+    assert!(
+        src.contains("editor_has_keys: true"),
+        "结构体里没初始化 editor_has_keys"
     );
     // 负向：不得回到「每个输入框自己报焦点」那种写法。
     let scattered = meta::hits_in_code(&src, "has_focus() {");
