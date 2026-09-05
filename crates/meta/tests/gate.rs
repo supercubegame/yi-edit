@@ -12,6 +12,14 @@ fn markers() -> Vec<String> {
         .collect()
 }
 
+fn verify_code() -> Vec<String> {
+    meta::read("scripts/verify.sh")
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .map(|l| l.to_string())
+        .collect()
+}
+
 /// 快闸门必须保持快：不能编 GUI。`--workspace` 会把 egui 拉进来，
 /// 一轮几分钟之后就没人愿意跑它了，而一个没人跑的闸门等于没有闸门。
 #[test]
@@ -21,11 +29,7 @@ fn the_fast_gate_does_not_build_the_gui() {
         sh.contains("-p yi-edit-core"),
         "快闸门没有按 crate 选择测试目标"
     );
-    let joined: String = sh
-        .lines()
-        .filter(|l| !l.trim_start().starts_with('#'))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let joined = verify_code().join("\n");
     assert!(
         !joined.contains("cargo test --workspace"),
         "快闸门里出现了 cargo test --workspace，它会把 GUI 一起编"
@@ -36,17 +40,32 @@ fn the_fast_gate_does_not_build_the_gui() {
     );
 }
 
+/// **闸门必须跑完每个测试二进制。** `cargo test` 默认 fail-fast：一个二进制红之后
+/// 它直接退出，后面的一个都不跑，而「没跑」与「通过了」在输出里长得一模一样。
+/// 实测：一次变异体审计里四个变异体只有一个被审判，其余三个既没被抓也没被放过。
+#[test]
+fn the_gate_runs_every_test_binary_even_after_a_failure() {
+    let mut checked = 0usize;
+    for line in verify_code() {
+        let t = line.trim().to_string();
+        if !t.contains("cargo test") {
+            continue;
+        }
+        checked += 1;
+        assert!(
+            t.contains("--no-fail-fast"),
+            "这行 cargo test 没带 --no-fail-fast，第一个红的二进制会把后面全部淹掉：{t}"
+        );
+    }
+    assert_eq!(checked, 1, "期望恰好一处 cargo test，实际 {checked} 处（新加的那处也要带开关）");
+}
+
 /// **失败详情必须在日志末尾。** 实测踩过：回写只带末尾 N 行，而参考项（fmt）
-/// 的输出接在测试输出后面且足够长，把四个失败的测试名全部挤出了窗口。
+/// 的输出接在测试输出后面且足够长，把失败的测试名全部挤出了窗口。
 /// 那条评论告诉我「失败 1 项」而定位不到根因，等于没有报告。
-/// 这里两条：参考项不得写进闸门日志（负向）；失败摘要节必须存在。
 #[test]
 fn the_failure_detail_lands_at_the_end_of_the_gate_log() {
-    let sh = meta::read("scripts/verify.sh");
-    let code: Vec<&str> = sh
-        .lines()
-        .filter(|l| !l.trim_start().starts_with('#'))
-        .collect();
+    let code = verify_code();
     let joined = code.join("\n");
 
     assert!(
