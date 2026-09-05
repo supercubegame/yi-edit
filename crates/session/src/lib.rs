@@ -30,6 +30,15 @@ pub const MAX_HITS: usize = 5000;
 /// 大文件模式下一次缓存多少行。
 pub const WINDOW_LINES: usize = 400;
 
+/// 把列号夹到合法的字符边界。不做这一步的话，在中文行上切片直接 panic。
+fn clamp_col(line: &str, col: usize) -> usize {
+    let mut c = col.min(line.len());
+    while c > 0 && !line.is_char_boundary(c) {
+        c -= 1;
+    }
+    c
+}
+
 pub enum Source {
     Memory(Doc),
     Huge {
@@ -265,6 +274,84 @@ impl Editor {
         })
     }
 
+    /// 选区文本（复制用）。**故意不限只读模式**：从 64MB 只读文件里复制一段
+    /// 是完全合法的需求，而它不改动任何东西。
+    ///
+    /// 与 `cut_selection()` 是两个独立路径，且必须逐字节一致 —— 否则「复制到的」
+    /// 与「剪掉的」不一样，而那不会报错。tests/clipboard.rs 里有一条交叉校验。
+    pub fn selected_text(&mut self) -> Option<String> {
+        let (a, b) = self.selection()?;
+        if a.line == b.line {
+            let l = self.line(a.line);
+            let from = clamp_col(&l, a.col);
+            let to = clamp_col(&l, b.col);
+            if to <= from {
+                return None;
+            }
+            return Some(l[from..to].to_string());
+        }
+        let mut out = String::new();
+        let first = self.line(a.line);
+        out.push_str(&first[clamp_col(&first, a.col)..]);
+        out.push('\n');
+        for i in a.line + 1..b.line {
+            out.push_str(&self.line(i));
+            out.push('\n');
+        }
+        let last = self.line(b.line);
+        out.push_str(&last[..clamp_col(&last, b.col)]);
+        Some(out)
+    }
+
+    /// 剪切：返回被删的文本并真的删掉。只读模式返回 None **且不改动文件**。
+    pub fn cut_selection(&mut self) -> Option<String> {
+        let (a, b) = self.selection()?;
+        if self.is_huge() {
+            return None;
+        }
+        let text = self.doc_mut()?.delete(a, b);
+        self.cursor = a;
+        self.anchor = None;
+        self.invalidate_states(a.line);
+        if text.is_empty() {
+            None
+        } else {
+            Some(text)
+        }
+    }
+
+    /// 插入文本（粘贴与键盘输入走同一条）。返回是否真的改动了内容。
+    ///
+    /// **走 `EditOp`**，所以粘贴可撤销、脏标记与高亮失效全部免费复用。
+    /// 这也是后面接 AI 编辑的地基：AI 的改动必须走同一套算子，否则撤销会漏掉它们。
+    pub fn insert_text(&mut self, text: &str) -> bool {
+        if self.is_huge() || text.is_empty() {
+            return false;
+        }
+        // 有选区先删。注意：这是**两个**算子，所以撤销要敲两下。
+        // 已知行为，记在 docs/PITFALLS.md 里（撤销粒度那一步会一并收拾）。
+        if self.selection().is_some() {
+            self.cut_selection();
+        }
+        let at = self.cursor;
+        let Some(d) = self.doc_mut() else {
+            return false;
+        };
+        let end = d.insert(at, text);
+        self.cursor = end;
+        self.anchor = None;
+        self.invalidate_states(at.line);
+        true
+    }
+
+    /// 全选。只读模式下也允许（全选 + 复制是合法的）。
+    pub fn select_all(&mut self) {
+        let last = self.line_count().saturating_sub(1);
+        let len = self.line(last).len();
+        self.anchor = Some(Pos::new(0, 0));
+        self.cursor = Pos::new(last, len);
+    }
+
     pub fn save(&mut self) -> io::Result<()> {
         let Some(path) = self.path.clone() else {
             return Err(io::Error::new(
@@ -285,6 +372,11 @@ impl Editor {
                 "大文件为只读模式，没有未保存的修改",
             )),
         }
+    }
+
+    /// 有没有未保存的修改。关窗拦截靠它，而不是在 UI 里自己猜。
+    pub fn is_dirty(&self) -> bool {
+        self.doc().map(|d| d.is_dirty()).unwrap_or(false)
     }
 
     /// 搜索。返回 (命中位置, 是否到达上限)。
@@ -411,9 +503,12 @@ pub const WELCOME: &str = "# Yi Edit
 Ctrl+O  打开输入框里的路径
 Ctrl+S  保存（写临时文件再 rename，不会把原文件写成半截）
 Ctrl+F  定位到查找框
+Ctrl+A  全选
+Ctrl+C / Ctrl+X / Ctrl+V  复制 / 剪切 / 粘贴
 Ctrl+Z / Ctrl+Y  撤销 / 重做
+Ctrl+B  开关侧栏
 Enter / Shift+Enter  下一个 / 上一个匹配
 
 超过 64 MB 的文件会以只读模式打开：只建行索引、按需读可见行，
-搜索与替换在磁盘上流式完成，不把文件整份拉进内存。
+搜索与替换在磁盘上流式完成，不把文件整份拉进内存。只读模式下仍可以选中并复制。
 ";
