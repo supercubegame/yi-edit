@@ -1,7 +1,4 @@
-#[path = "../src/ime.rs"]
-mod ime;
-
-use ime::{ImeEffect, ImeEvent, ImeState};
+use yi_edit_session::ime::{ImeEffect, ImeEvent, ImeState};
 
 #[test]
 fn preedit_is_display_only_and_commit_is_the_only_document_effect() {

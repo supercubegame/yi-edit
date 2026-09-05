@@ -26,39 +26,18 @@ pub enum ImeEffect {
 }
 
 impl ImeState {
-    pub fn enabled(&self) -> bool {
-        self.enabled
-    }
+    pub fn enabled(&self) -> bool { self.enabled }
+    pub fn preedit(&self) -> &str { &self.preedit }
 
-    pub fn preedit(&self) -> &str {
-        &self.preedit
-    }
-
-    /// 处理一条输入法事件。preedit 永远不产生 Commit effect。
     pub fn handle(&mut self, event: ImeEvent) -> ImeEffect {
         match event {
-            ImeEvent::Enabled => {
-                self.enabled = true;
-                ImeEffect::None
-            }
-            ImeEvent::Preedit(text) => {
-                self.enabled = true;
-                self.preedit = text;
-                ImeEffect::None
-            }
+            ImeEvent::Enabled => { self.enabled = true; ImeEffect::None }
+            ImeEvent::Preedit(text) => { self.enabled = true; self.preedit = text; ImeEffect::None }
             ImeEvent::Commit(text) => {
                 self.preedit.clear();
-                if text.is_empty() {
-                    ImeEffect::None
-                } else {
-                    ImeEffect::Commit(text)
-                }
+                if text.is_empty() { ImeEffect::None } else { ImeEffect::Commit(text) }
             }
-            ImeEvent::Disabled => {
-                self.enabled = false;
-                self.preedit.clear();
-                ImeEffect::ClearPreedit
-            }
+            ImeEvent::Disabled => { self.enabled = false; self.preedit.clear(); ImeEffect::ClearPreedit }
         }
     }
 }
