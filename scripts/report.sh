@@ -15,7 +15,7 @@
 set -Eeuo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-cd "$ROOT"
+cd "${ROOT}"
 
 BODY_FILE=${1:?用法: report.sh <body.md> [marker 行号]}
 MARKER_LINE=${2:-1}
@@ -54,12 +54,9 @@ try() {
   return 0
 }
 
-if [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "${GITHUB_EVENT_PATH:-}" ] && command -v jq > /dev/null 2>&1; then
-  pr=$(jq -r '.pull_request.number // empty' "${GITHUB_EVENT_PATH}")
-fi
-if [ -z "${pr}" ]; then
-  pr=$(gh api "repos/${REPO}/commits/${SHA}/pulls" --jq '.[0].number // empty' 2> /dev/null || true)
-fi
+# PR 号只有一份真身（scripts/pr-number.sh）：report 与 attest 各自解析的话，
+# 一边写 PR 评论、另一边去提交评论上找，而那看起来像「报告没送达」。
+pr=$(bash scripts/pr-number.sh)
 
 find_existing() {
   gh api "$1" --paginate \
