@@ -1,13 +1,13 @@
 //! 跳转映射的断言。这是整个面板里唯一会静默算错的东西：
 //! 点一下跳到第 300 行而实际到了 320 行，不报错、不卡死、截图也看不出来。
 
-use yi_edit_session::jump::JumpMap;
+use yi_edit_session::jump::{JumpMap, MIN_PANEL_PX};
 
 /// 覆盖三种截然不同的形式：行比像素少、差不多、行比像素多很多。
 /// 只试一种的话，多行挤在同一行像素上那种情形永远碰不到。
 const SHAPES: &[(u32, usize)] = &[
-    (1, 1),
-    (1, 1000),
+    (2, 2),
+    (2, 1000),
     (10, 3),
     (100, 100),
     (120, 37),
@@ -17,15 +17,22 @@ const SHAPES: &[(u32, usize)] = &[
     (7, 1_000_000),
 ];
 
+/// 不能服务的几何直接拒，而不是拿一个像素去假装。
+/// 两侧都断：1px 必须被拒，2px 必须被接受 —— 否则这个下限会静默往上漂。
 #[test]
-fn degenerate_geometry_is_refused_instead_of_guessed() {
+fn geometry_that_cannot_be_served_is_refused() {
     assert!(JumpMap::new(0, 100).is_none(), "高度为 0 时不应该假装能算");
     assert!(JumpMap::new(100, 0).is_none(), "空文件时不应该假装能算");
-    assert!(JumpMap::new(1, 1).is_some());
+    // 1px：一个像素不可能同时是文首和文末。
+    assert!(JumpMap::new(1, 1).is_none(), "1px 面板应该被拒");
+    assert!(JumpMap::new(1, 1000).is_none(), "1px 面板应该被拒");
+    // 2px：下限就在这里，必须被接受。
+    assert!(JumpMap::new(MIN_PANEL_PX, 1000).is_some(), "{MIN_PANEL_PX}px 应该被接受");
+    assert_eq!(MIN_PANEL_PX, 2, "下限漂了，上面两侧的断言就不再夹着它了");
 }
 
 /// 承重：往返一致。line -> band 中点 -> line 必须回到原行。
-/// 行比像素多时多行共享一个像素，那种情形下只要求「回到同一像素带」。
+/// 行比像素多时多行共享一个像素，那种退化带跳过（它在面板上本来就画不出来）。
 ///
 /// 下限 400 是从**实测值 491** 往下留的余量。上一版拍了 1000，它第一次就红了 ——
 /// 拍的数字就是这么红的。实测值会打印出来，下一轮可以拿它收紧。
@@ -48,7 +55,6 @@ fn line_to_band_to_line_round_trips() {
             assert!(top <= bottom, "band 倒置：h={h} n={n} line={line}");
             assert!(bottom <= *h, "band 越界：h={h} n={n} line={line}");
             if top == bottom {
-                // 多行挤在同一像素：反向只能回到那一带里的某一行。
                 collapsed += 1;
                 continue;
             }
@@ -89,7 +95,7 @@ fn bands_tile_the_panel_without_gaps() {
 /// 首末行都必须能通过点击到达，包括越界的 y。
 ///
 /// 这一条抓到了一个真 bug：行数比像素多时第 0 行的像素带是空的，
-/// 于是 h=800 n=1000 时点最顶端会到第 1 行，h=1 n=1000 时直接到第 999 行。
+/// 于是 h=800 n=1000 时点最顶端会到第 1 行而不是文首。
 #[test]
 fn first_and_last_line_are_both_reachable() {
     for (h, n) in SHAPES {
@@ -156,7 +162,6 @@ fn line_at_is_monotonic_in_y() {
 /// 不做这一步的话，「所以改成了整数二分」只是一句无从验证的声明。
 #[test]
 fn the_float_shortcut_really_would_have_been_off_by_a_line() {
-    // 典型的天真写法：(y / h * n) 取整。
     fn naive(h: u32, n: usize, y: u32) -> usize {
         ((y as f64 / h as f64) * n as f64) as usize
     }
@@ -197,7 +202,6 @@ fn viewport_band_is_always_visible_and_in_bounds() {
                 assert!(bottom <= *h, "h={h} n={n} first={first} 高亮区越下边界");
             }
         }
-        // 滚到顶时高亮区从 0 开始。
         assert_eq!(
             m.viewport_band(0, 10).0,
             0,
