@@ -1,8 +1,12 @@
 name: verify
 
+# 一个提交只跑一条 run。push 与 PR 同时触发的话，两条 run 会抢同一条带 marker
+# 的评论，而送达核对要求评论里带着自己那次的 run id（幂等写入必须铉本次运行，
+# 否则「存在一条带 marker 的评论」就是经典假绿）—— 于是先完成的那条会自己判红。
+# 顺便两条回写通道都会真的跑一遍：特性分支走 PR 评论，main 走提交评论。
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   # 上游漂（egui / image / rustc）是时间驱动的：人家改格式那天我可能一行代码都没推。
   schedule:
@@ -10,7 +14,7 @@ on:
   workflow_dispatch:
 
 # permissions 一写就变白名单：没列的范围全部变 none。
-# actions: read 是下载产物需要的 —— 上一轮就是因为没给它，报告里一份产物都没有。
+# actions: read 是下载产物需要的 —— 实测过：没给它时报告里一份产物都没有。
 permissions:
   contents: write
   pull-requests: write
@@ -57,7 +61,7 @@ jobs:
         continue-on-error: true
         run: bash scripts/raw-log.sh "快闸门原始输出" 2 gate.log gate-result.txt > raw-log-run.txt 2>&1
       # 第二次调用把第一次的 stderr 与退出码一起发出去：回写脚本自己的失败
-      # 是唯一一处不能靠它自己报的地方。这一步失败则 job 直接红。
+      # 是唯一一处不能靠它自己报的地方（观察者不能是被观察的那个）。
       - name: Post raw fast-gate log with its own trace
         if: always()
         run: |
