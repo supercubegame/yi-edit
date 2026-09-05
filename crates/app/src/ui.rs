@@ -1,4 +1,4 @@
-//! 界面层。只负责画和收键，不放任何搜索/替换/高亮/跳转映射的真逻辑。
+//! 界面层。只负责画和收键，不放任何搜索/替换/高亮/跳转映射/剪贴板的真逻辑。
 //!
 //! 布局：顶部工具栏 + 查找栏，底部状态栏，中间三列（文件面板 / 编辑区 / 跳转面板）。
 //! 不用 Panel 容器：eframe 0.36 的 `App::ui` 直接给一个覆盖整窗口的 `Ui`，
@@ -82,7 +82,7 @@ pub fn install_fonts(ctx: &egui::Context) {
 pub fn install_style(ctx: &egui::Context) {
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = th::BG;
-    visuals.window_fill = th::BG;
+    visuals.window_fill = th::CHROME;
     visuals.extreme_bg_color = egui::Color32::from_rgb(0x1a, 0x1a, 0x1c);
     visuals.widgets.inactive.weak_bg_fill = th::CONTROL;
     visuals.widgets.inactive.bg_fill = th::CONTROL;
@@ -115,11 +115,17 @@ pub struct YiEdit {
     hit_idx: usize,
     scroll_to: Option<usize>,
     focus_search: bool,
+    /// 键盘归编辑区还是归输入框。**只能有一份真身**：帧末从 egui 的焦点状态
+    /// 读一次，下一帧用。之前在 handle_keys 前重置成 true、再让四个控件各自
+    /// 报一遍，结果是在路径框里敲字会同时往正文里插一份。
     editor_has_keys: bool,
     show_sidebar: bool,
     show_jump: bool,
     show_find: bool,
     show_hidden: bool,
+    /// 关窗确认框。不拦的话直接叉掉就丢改动，那是数据丢失级的。
+    show_close_dialog: bool,
+    force_close: bool,
     listing: Option<Listing>,
     listing_err: Option<String>,
     /// 最近一帧的可见行区间，跳转面板用它画视口指示器。
@@ -157,6 +163,8 @@ impl YiEdit {
             show_jump: true,
             show_find: false,
             show_hidden: false,
+            show_close_dialog: false,
+            force_close: false,
             listing: None,
             listing_err: None,
             visible: (0, 0),
@@ -266,40 +274,66 @@ impl YiEdit {
         }
     }
 
-    // ---------- 编辑 ----------
+    // ---------- 编辑与剪贴板 ----------
 
-    fn delete_selection(&mut self) -> bool {
-        let Some((a, b)) = self.ed.selection() else {
-            return false;
-        };
-        if let Some(d) = self.ed.doc_mut() {
-            d.delete(a, b);
-            self.ed.cursor = a;
-            self.ed.anchor = None;
-            self.ed.invalidate_states(a.line);
-            return true;
-        }
-        false
-    }
-
+    /// 插入文本。真逻辑在 session 里（走 EditOp，所以可撤销），
+    /// 这里只负责把拒绝的原因告诉用户 —— 静默失败与「改成功了」在屏幕上一模一样。
     fn insert_text(&mut self, text: &str) {
         if self.ed.is_huge() {
             self.ed.status =
                 String::from("大文件为只读模式：V1 不在超过 64 MB 的文件上做内存编辑");
             return;
         }
-        self.delete_selection();
-        let at = self.ed.cursor;
-        if let Some(d) = self.ed.doc_mut() {
-            let end = d.insert(at, text);
-            self.ed.cursor = end;
-            self.ed.anchor = None;
-            self.ed.invalidate_states(at.line);
+        self.ed.insert_text(text);
+    }
+
+    fn copy(&mut self, ctx: &egui::Context) {
+        // 只读模式下复制是合法的，所以这里不判 is_huge。
+        match self.ed.selected_text() {
+            Some(text) => {
+                let n = text.chars().count();
+                ctx.copy_text(text);
+                self.ed.status = format!("已复制 {n} 个字符");
+            }
+            None => self.ed.status = String::from("没有选中任何内容"),
+        }
+    }
+
+    fn cut(&mut self, ctx: &egui::Context) {
+        if self.ed.is_huge() {
+            // 先把选区复制进剪贴板再报只读：用户的意图至少完成一半。
+            self.copy(ctx);
+            self.ed.status = String::from("大文件为只读模式：已复制，但没有剪掉");
+            return;
+        }
+        match self.ed.cut_selection() {
+            Some(text) => {
+                let n = text.chars().count();
+                ctx.copy_text(text);
+                self.ed.status = format!("已剪切 {n} 个字符");
+            }
+            None => self.ed.status = String::from("没有选中任何内容"),
+        }
+    }
+
+    fn paste(&mut self, text: &str) {
+        if self.ed.is_huge() {
+            self.ed.status = String::from("大文件为只读模式：粘贴被拒绝了");
+            return;
+        }
+        // 剪贴板里的 CRLF 归一化成 LF：不归的话从 Windows 记事本粘一段进来会
+        // 多出一堆 \r，而那些 \r 在界面上看不见。
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        if self.ed.insert_text(&normalized) {
+            self.ed.status = format!("已粘贴 {} 个字符", normalized.chars().count());
         }
     }
 
     fn backspace(&mut self) {
-        if self.ed.is_huge() || self.delete_selection() {
+        if self.ed.is_huge() {
+            return;
+        }
+        if self.ed.cut_selection().is_some() {
             return;
         }
         let cur = self.ed.cursor;
@@ -315,7 +349,10 @@ impl YiEdit {
     }
 
     fn delete_forward(&mut self) {
-        if self.ed.is_huge() || self.delete_selection() {
+        if self.ed.is_huge() {
+            return;
+        }
+        if self.ed.cut_selection().is_some() {
             return;
         }
         let cur = self.ed.cursor;
@@ -391,7 +428,12 @@ impl YiEdit {
     fn handle_keys(&mut self, ctx: &egui::Context) {
         let events = ctx.input(|i| i.events.clone());
         for ev in events {
+            // 剪贴板三个事件与文本输入一样，只在键盘归编辑区时才接：
+            // 否则焦点在路径框里时会粘两份（一份给输入框，一份给正文）。
             match ev {
+                egui::Event::Copy if self.editor_has_keys => self.copy(ctx),
+                egui::Event::Cut if self.editor_has_keys => self.cut(ctx),
+                egui::Event::Paste(text) if self.editor_has_keys => self.paste(&text),
                 egui::Event::Text(t) if self.editor_has_keys => self.insert_text(&t),
                 egui::Event::Key {
                     key,
@@ -403,6 +445,7 @@ impl YiEdit {
                         match key {
                             egui::Key::S => self.save(),
                             egui::Key::O => self.open_path(),
+                            egui::Key::A if self.editor_has_keys => self.ed.select_all(),
                             egui::Key::F => {
                                 self.show_find = true;
                                 self.focus_search = true;
@@ -441,6 +484,110 @@ impl YiEdit {
                 }
                 _ => {}
             }
+        }
+    }
+
+    // ---------- 关窗拦截 ----------
+
+    /// 有未保存的修改时拦下关窗。**截图模式绕过**：否则 CI 里那一帧会被
+    /// 对话框卡住，而那会表现成「截图超时」而不是「对话框挡住了」。
+    fn guard_close(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.viewport().close_requested()) {
+            return;
+        }
+        if self.force_close || self.shot.active() || !self.ed.is_dirty() {
+            return;
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        self.show_close_dialog = true;
+    }
+
+    fn close_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_close_dialog {
+            return;
+        }
+        let name = self.ed.status_bar().name;
+        let mut save_and_quit = false;
+        let mut discard = false;
+        let mut cancel = false;
+
+        egui::Window::new(egui::RichText::new("有未保存的修改").font(sans(13.0)))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -40.0))
+            .show(ctx, |ui| {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!("{name} 还有没保存的修改。"))
+                        .font(sans(12.0))
+                        .color(th::TEXT),
+                );
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    // macOS 的习惯：默认动作在最右，破坏性动作在最左。
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("不保存退出")
+                                    .font(sans(12.0))
+                                    .color(egui::Color32::from_rgb(0xff, 0x6b, 0x6b)),
+                            )
+                            .corner_radius(th::RADIUS)
+                            .fill(th::CONTROL),
+                        )
+                        .clicked()
+                    {
+                        discard = true;
+                    }
+                    ui.add_space(40.0);
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("取消").font(sans(12.0)).color(th::TEXT),
+                            )
+                            .corner_radius(th::RADIUS)
+                            .fill(th::CONTROL),
+                        )
+                        .clicked()
+                    {
+                        cancel = true;
+                    }
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("保存并退出")
+                                    .font(sans(12.0))
+                                    .color(th::TEXT),
+                            )
+                            .corner_radius(th::RADIUS)
+                            .fill(th::ACCENT),
+                        )
+                        .clicked()
+                    {
+                        save_and_quit = true;
+                    }
+                });
+                ui.add_space(2.0);
+            });
+
+        if cancel {
+            self.show_close_dialog = false;
+        }
+        if discard {
+            self.force_close = true;
+            self.show_close_dialog = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if save_and_quit {
+            self.save();
+            // 保存失败就**不退**，对话框继续开着：否则保存失败 + 直接退出
+            // 等于静默丢掉修改，而那正是这个对话框要防的事。
+            if self.ed.is_dirty() {
+                return;
+            }
+            self.force_close = true;
+            self.show_close_dialog = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
 
@@ -490,7 +637,7 @@ impl YiEdit {
     }
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
-        let dirty = self.ed.doc().map(|d| d.is_dirty()).unwrap_or(false);
+        let dirty = self.ed.is_dirty();
         let can_undo = self.ed.doc().map(|d| d.can_undo()).unwrap_or(false);
         let can_redo = self.ed.doc().map(|d| d.can_redo()).unwrap_or(false);
         let read_only = self.ed.is_huge();
@@ -551,9 +698,6 @@ impl YiEdit {
                     .font(sans(12.0))
                     .hint_text("文件路径"),
             );
-            if r.has_focus() {
-                self.editor_has_keys = false;
-            }
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.open_path();
             }
@@ -569,9 +713,6 @@ impl YiEdit {
                     .font(sans(12.0))
                     .hint_text("查找"),
             );
-            if sr.has_focus() {
-                self.editor_has_keys = false;
-            }
             if self.focus_search {
                 sr.request_focus();
                 self.focus_search = false;
@@ -579,7 +720,9 @@ impl YiEdit {
             if sr.changed() {
                 self.do_search();
             }
-            if sr.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            let enter_in_search =
+                sr.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if enter_in_search {
                 let forward = !ui.input(|i| i.modifiers.shift);
                 self.goto_hit(forward);
             }
@@ -590,15 +733,12 @@ impl YiEdit {
                 self.goto_hit(true);
             }
 
-            let rr = ui.add_sized(
+            ui.add_sized(
                 [180.0, 24.0],
                 egui::TextEdit::singleline(&mut self.replace)
                     .font(sans(12.0))
                     .hint_text("替换为"),
             );
-            if rr.has_focus() {
-                self.editor_has_keys = false;
-            }
             if Self::tool_button(ui, "全部替换", !self.search.is_empty()) {
                 self.do_replace_all();
             }
@@ -712,9 +852,7 @@ impl YiEdit {
                         } else {
                             e.name.clone()
                         };
-                        let color = if is_current {
-                            th::TEXT
-                        } else if e.is_dir {
+                        let color = if e.is_dir {
                             egui::Color32::from_rgb(0x7a, 0xb8, 0xff)
                         } else {
                             th::TEXT
@@ -724,12 +862,15 @@ impl YiEdit {
                         } else {
                             egui::Color32::TRANSPARENT
                         };
+                        // 文件名必须左对齐：`add_sized` 给 Button 会把文字居中，
+                        // 而一个居中的文件列表每行起点都不同，没法扫。
                         let btn = egui::Button::new(
                             egui::RichText::new(label).font(sans(12.0)).color(color),
                         )
                         .corner_radius(4.0)
-                        .fill(fill);
-                        if ui.add_sized([ui.available_width(), 20.0], btn).clicked() {
+                        .fill(fill)
+                        .min_size(egui::vec2(ui.available_width(), 20.0));
+                        if ui.add(btn.right_text("")).clicked() {
                             if e.is_dir {
                                 to_cd = Some(e.path.clone());
                             } else {
@@ -764,6 +905,9 @@ impl YiEdit {
     }
 
     /// 右侧快速跳转面板。映射逻辑全在 `yi_edit_session::jump`，这里只画。
+    ///
+    /// **缩略图按行画而不是按像素画。** 按像素采样的话，13 行的文件里同一行会被
+    /// 画几十遍叠成一个实心块 —— 这就是截图里右上角那个蓝块的成因。
     fn jump_panel(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, th::CHROME);
@@ -782,10 +926,44 @@ impl YiEdit {
                 egui::pos2(rect.max.x, rect.min.y + vb as f32),
             ),
             0.0,
-            egui::Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 22),
+            egui::Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 18),
         );
 
-        // 搜索命中的位置。
+        // 内容缩略：**按行**遍历，每行一条短线，用长度表示缩进与密度。
+        // 行很多时（行高不到 1px）才降级成按像素采样，否则一个百万行的文件
+        // 要画一百万条线。大文件模式完全不画：那会每帧把整个文件扫一遗。
+        if !self.ed.is_huge() {
+            let usable = rect.width() - 8.0;
+            let step = (lines / h.max(1) as usize).max(1);
+            let mut line_no = 0usize;
+            while line_no < lines {
+                let Some((top, bottom)) = map.line_band(line_no) else {
+                    break;
+                };
+                let text = self.ed.line(line_no);
+                let trimmed = text.trim_end();
+                if !trimmed.is_empty() {
+                    let indent = text.len() - text.trim_start().len();
+                    let x0 = rect.min.x + 4.0 + (indent as f32 * 1.1).min(usable * 0.5);
+                    let len_frac = (trimmed.len() as f32 / 90.0).min(1.0);
+                    let x1 = (x0 + usable * len_frac).min(rect.max.x - 4.0);
+                    // 线宽取带高的一半且不超过 2px：带很高时（短文件）也只画一条细线，
+                    // 而不是把整带填成实心块。
+                    let band_h = (bottom.saturating_sub(top)) as f32;
+                    let w = band_h.min(2.0).max(1.0);
+                    let y = rect.min.y + top as f32 + band_h / 2.0;
+                    if x1 > x0 {
+                        painter.line_segment(
+                            [egui::pos2(x0, y), egui::pos2(x1, y)],
+                            egui::Stroke::new(w, egui::Color32::from_gray(0x5c)),
+                        );
+                    }
+                }
+                line_no += step;
+            }
+        }
+
+        // 搜索命中。画在缩略图之上，否则会被盖住。
         for hit in &self.hits {
             if let Some((top, bottom)) = map.line_band(hit.line) {
                 let y0 = rect.min.y + top as f32;
@@ -793,7 +971,7 @@ impl YiEdit {
                 painter.rect_filled(
                     egui::Rect::from_min_max(
                         egui::pos2(rect.min.x + 3.0, y0),
-                        egui::pos2(rect.max.x - 3.0, y1),
+                        egui::pos2(rect.max.x - 3.0, y1.min(y0 + 3.0)),
                     ),
                     0.0,
                     egui::Color32::from_rgb(0xd8, 0xb0, 0x40),
@@ -801,44 +979,18 @@ impl YiEdit {
             }
         }
 
-        // 当前行。
-        if let Some((top, bottom)) = map.line_band(self.ed.cursor.line) {
+        // 当前行。**高度夹到 2px**：不夹的话短文件里一行占几十像素，
+        // 用强调色铺满就成了截图里右上角那个大蓝块。
+        if let Some((top, _)) = map.line_band(self.ed.cursor.line) {
             let y0 = rect.min.y + top as f32;
-            let y1 = rect.min.y + (bottom.max(top + 1)) as f32;
             painter.rect_filled(
-                egui::Rect::from_min_max(egui::pos2(rect.min.x, y0), egui::pos2(rect.max.x, y1)),
+                egui::Rect::from_min_max(
+                    egui::pos2(rect.min.x, y0),
+                    egui::pos2(rect.max.x, y0 + 2.0),
+                ),
                 0.0,
                 th::ACCENT,
             );
-        }
-
-        // 内容缩略：每一带里抽一行，用长度表示缩进与密度。
-        // 大文件模式不画：那会每帧把整个文件扫一遗。
-        if !self.ed.is_huge() {
-            let step = (h / 2).max(1);
-            for i in 0..step {
-                let y = (i * h / step).min(h - 1);
-                let line_no = map.line_at(y);
-                let text = self.ed.line(line_no);
-                let trimmed = text.trim_end();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                let indent = text.len() - text.trim_start().len();
-                let usable = rect.width() - 8.0;
-                let x0 = rect.min.x + 4.0 + (indent as f32 * 1.2).min(usable * 0.5);
-                let len_frac = (trimmed.len() as f32 / 100.0).min(1.0);
-                let x1 = (x0 + usable * len_frac).min(rect.max.x - 4.0);
-                if x1 > x0 {
-                    painter.line_segment(
-                        [
-                            egui::pos2(x0, rect.min.y + y as f32 + 0.5),
-                            egui::pos2(x1, rect.min.y + y as f32 + 0.5),
-                        ],
-                        egui::Stroke::new(1.0, egui::Color32::from_gray(0x55)),
-                    );
-                }
-            }
         }
 
         // 点击 / 拖拽跳转。
@@ -859,24 +1011,26 @@ impl YiEdit {
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let bar = self.ed.status_bar();
         ui.horizontal_centered(|ui| {
-            ui.add_space(10.0);
+            ui.add_space(12.0);
             ui.label(
                 egui::RichText::new(bar.name.clone())
                     .font(sans(11.0))
                     .color(th::TEXT),
             );
-            ui.label(
-                egui::RichText::new(bar.position_text())
-                    .font(sans(11.0))
-                    .color(th::TEXT_DIM),
-            );
-            ui.label(
-                egui::RichText::new(bar.size_text())
-                    .font(sans(11.0))
-                    .color(th::TEXT_DIM),
-            );
+            for text in [bar.position_text(), bar.size_text()] {
+                ui.label(
+                    egui::RichText::new("·")
+                        .font(sans(11.0))
+                        .color(th::HAIRLINE),
+                );
+                ui.label(
+                    egui::RichText::new(text)
+                        .font(sans(11.0))
+                        .color(th::TEXT_DIM),
+                );
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(10.0);
+                ui.add_space(12.0);
                 for b in bar.badges().into_iter().rev() {
                     ui.label(egui::RichText::new(b).font(sans(11.0)).color(th::TEXT_DIM));
                 }
@@ -1043,7 +1197,7 @@ impl eframe::App for YiEdit {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.shot.tick(&ctx);
-        self.editor_has_keys = true;
+        self.guard_close(&ctx);
         self.handle_keys(&ctx);
 
         let full = ui.available_rect_before_wrap();
@@ -1131,6 +1285,11 @@ impl eframe::App for YiEdit {
             egui::pos2(right, body.max.y),
         );
         Self::region(ui, center, |ui| self.editor_area(ui));
+
+        self.close_dialog(&ctx);
+
+        // 焦点只读一次，帧末读，下一帧用。这是 `editor_has_keys` 的**唯一**写入点（除了初始化）。
+        self.editor_has_keys = ctx.memory(|m| m.focused()).is_none() && !self.show_close_dialog;
     }
 }
 
