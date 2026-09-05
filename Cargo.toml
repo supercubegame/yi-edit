@@ -1,7 +1,13 @@
 [workspace]
 resolver = "2"
 # 成员集合与 crates/ 下的目录集合必须相等（双向），crates/meta/tests/registry.rs 有断言在守。
-members = ["crates/app", "crates/core", "crates/fileio", "crates/meta"]
+members = [
+  "crates/app",
+  "crates/core",
+  "crates/fileio",
+  "crates/meta",
+  "crates/session",
+]
 
 [workspace.package]
 version = "1.0.0"
