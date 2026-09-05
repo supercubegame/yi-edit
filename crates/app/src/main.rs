@@ -6,6 +6,7 @@
 mod ime_adapter;
 mod shot;
 mod theme;
+#[path = "ui_runtime.rs"]
 mod ui;
 
 use std::path::PathBuf;
@@ -15,8 +16,6 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
-            // 最小窗口与 theme.rs 里的面板宽度耦合：侧栏+跳转+行号栏 不得超过它的一半，
-            // 三根栏的高度也不得超过高度的一半。crates/meta/tests/ui_layout.rs 里两条断言守着。
             .with_min_inner_size([860.0, 520.0])
             .with_title("Yi Edit"),
         ..Default::default()
