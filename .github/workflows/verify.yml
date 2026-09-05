@@ -121,6 +121,21 @@ jobs:
             target/release/yi-edit.exe
           if-no-files-found: warn
 
+      # 豆腐块是一条「坏了不会喊」的通道：截图只在 Linux runner 上拍，而那台机器自带
+      # Droid fallback，于是截图永远是好的；真正出事的 Windows 上字体是 .ttc 集合，
+      # 而老候选表写的是 .ttf，一个字也画不出而闸门全绿。
+      # 所以这一步**三个平台都跑**，故意不挂 matrix.probe。它不开窗口，不需要显示器。
+      - name: Font probe
+        id: fontprobe
+        continue-on-error: true
+        if: steps.build.outcome == 'success'
+        shell: bash
+        run: |
+          bin=target/release/yi-fontprobe
+          [ -f "${bin}" ] || bin="${bin}.exe"
+          "${bin}" > font-probe.txt 2>&1
+          cat font-probe.txt
+
       - name: Screenshot checker selftest
         id: selftest
         continue-on-error: true
@@ -147,7 +162,7 @@ jobs:
                   *counts.entry(word.to_string()).or_insert(0) += i + 1;
               }
               /* 块注释
-                 跨行 */
+                 跳行 */
               let _ = (0xff_u8, 3.14, counts.len());
           }
           EOF
@@ -195,10 +210,10 @@ jobs:
         run: |
           xvfb-run -a --server-args="-screen 0 1280x800x24" \
             ./target/release/yi-edit big.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
-      # 四条带对应四个区域。**底部拆成两条**：0.90..1.00 把状态栏（底部 26px
-      # = 0.9675..1.0）包进来了，于是即使编辑区底部空一大块，光靠状态栏的文字
+      # 四条带对应四个区域。**底部拆成两条**：0.90..1.00 把状态条（底部 26px
+      # = 0.9675..1.0）包进来了，于是即使编辑区底部空一大块，光靠状态条的文字
       # 就能让那条带变绿 —— 那就是一条会自己变绿的断言。
-      # 颜色数下限 8 只用来抓「这一条带是纯色的」；实测值见 docs/PITFALLS.md。
+      # 颜色数下限 8 只用来拓「这一条带是纯色的」；实测值见 docs/PITFALLS.md。
       - name: Check screenshots
         id: shots
         continue-on-error: true
@@ -229,6 +244,7 @@ jobs:
             bench-result.txt
             bench-run.txt
             app-run.txt
+            font-probe.txt
             build.log
           if-no-files-found: warn
 
@@ -244,6 +260,7 @@ jobs:
             echo "bash=$BASH_VERSION"
             echo "build=${{ steps.build.outcome }}"
             echo "upload_bin=${{ steps.upload_bin.outcome }}"
+            echo "fontprobe=${{ steps.fontprobe.outcome }}"
             echo "selftest=${{ steps.selftest.outcome }}"
             echo "fixtures=${{ steps.fixtures.outcome }}"
             echo "shot_small=${{ steps.shot_small.outcome }}"
@@ -258,6 +275,9 @@ jobs:
           fail=0
           note() { echo "VERDICT FAIL: $1" | tee -a outcomes.txt; fail=1; }
           [ "${{ steps.build.outcome }}" = success ] || note "构建没成功"
+          # 字体探测三个平台都要算进去：只在拍截图的那台算的话，它就又只守得住
+          # 本来就不会出错的那一台。
+          [ "${{ steps.fontprobe.outcome }}" = success ] || note "字体探测没过（界面会出豆腐块）"
           if [ "${{ matrix.probe }}" = "true" ]; then
             [ "${{ steps.selftest.outcome }}" = success ] || note "截图检查器自测没过"
             [ "${{ steps.fixtures.outcome }}" = success ] || note "夹具生成没成功"
@@ -273,14 +293,14 @@ jobs:
         shell: bash
         run: |
           bash scripts/raw-log.sh "慢闸门原始输出 ${{ matrix.os }}" ${{ matrix.marker_line }} \
-            outcomes.txt build.log app-run.txt shotcheck.txt bench-run.txt > raw-log-run.txt 2>&1
+            outcomes.txt font-probe.txt build.log app-run.txt shotcheck.txt bench-run.txt > raw-log-run.txt 2>&1
       - name: Post raw slow-gate log with its own trace
         if: always()
         shell: bash
         run: |
           echo "raw_log_outcome=${{ steps.raw.outcome }}" >> raw-log-run.txt
           bash scripts/raw-log.sh "慢闸门原始输出 ${{ matrix.os }}" ${{ matrix.marker_line }} \
-            raw-log-run.txt outcomes.txt build.log app-run.txt shotcheck.txt bench-run.txt
+            raw-log-run.txt outcomes.txt font-probe.txt build.log app-run.txt shotcheck.txt bench-run.txt
       - name: Fail if the evaluation failed
         if: always()
         shell: bash
