@@ -1,9 +1,10 @@
 //! 跑在多个平台上的脚本必须兼容 bash 3.2。
 //!
-//! 为什么这条值得一个扫描器：**实测踩过**。macOS runner 的 /bin/bash 是 3.2.57（2007 年），
-//! 一句 bash 4 年代的写法让 macOS 那条 job 在**评论已经成功发出去之后**才红，
-//! 而面板上看不出任何与 shell 版本有关的线索 —— 三个平台里只有一个红，
-//! 看起来像平台特有的网络/权限问题。一条规矩被违反了就该变成断言。
+//! 为什么这两条值得扫描器：**同一个坑连红两轮**。macOS runner 的 /bin/bash 是 3.2.57
+//! （2007 年），而两次的症状都是「评论已经成功发出去了，job 才红」，
+//! 且三个平台里只有一个红 —— 看起来像平台特有的网络或权限问题。
+//! 第一轮我只改了写法而没给形状配断言，于是同一类错又红了一次。
+//! 一条规矩被违反两次，就该变成断言。
 
 use yi_edit_meta as meta;
 
@@ -22,39 +23,89 @@ const BANNED: &[(&str, &str)] = &[
 
 /// 跑在三个平台上的脚本。这份名单就是期望：新加一个要跑在 macOS 上的脚本
 /// 却忘了登记，它就完全在扫描范围之外。
-const CROSS_PLATFORM: &[&str] = &["scripts/report.sh", "scripts/attest.sh", "scripts/raw-log.sh"];
+const CROSS_PLATFORM: &[&str] = &[
+    "scripts/report.sh",
+    "scripts/attest.sh",
+    "scripts/raw-log.sh",
+];
+
+fn code_lines(src: &str) -> Vec<(usize, &str)> {
+    src.lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim_start().starts_with('#'))
+        .map(|(i, l)| (i + 1, l))
+        .collect()
+}
 
 fn banned_hits(src: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for (i, line) in src.lines().enumerate() {
-        let t = line.trim();
-        if t.starts_with('#') {
-            continue;
-        }
+    for (no, line) in code_lines(src) {
         for (pat, why) in BANNED {
-            if t.contains(pat) {
-                out.push(format!("{}: {pat}（{why}）：{t}", i + 1));
+            if line.contains(pat) {
+                out.push(format!("{no}: {pat}（{why}）：{}", line.trim()));
             }
         }
     }
     out
 }
 
-/// 正向自证：扫描器必须能拓到一个合成的违规写法，也必须放过注释里的提到。
+/// `$var` 紧跟非 ASCII 字符。bash 3.2 在 C 语言环境下会把那几个字节当成变量名的
+/// 一部分，配上 `set -u` 就是硬错。`${var}` 不会。
+fn dollar_before_multibyte(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (no, line) in code_lines(src) {
+        let b = line.as_bytes();
+        let mut j = 0usize;
+        while j < b.len() {
+            let starts_name =
+                b[j] == b'$' && j + 1 < b.len() && (b[j + 1].is_ascii_alphabetic() || b[j + 1] == b'_');
+            if !starts_name {
+                j += 1;
+                continue;
+            }
+            let mut k = j + 1;
+            while k < b.len() && (b[k].is_ascii_alphanumeric() || b[k] == b'_') {
+                k += 1;
+            }
+            if k < b.len() && b[k] >= 0x80 {
+                out.push(format!(
+                    "{no}: ${} 紧跟非 ASCII 字符，改成 ${{{}}}：{}",
+                    &line[j + 1..k],
+                    &line[j + 1..k],
+                    line.trim()
+                ));
+            }
+            j = k;
+        }
+    }
+    out
+}
+
+/// 双向自证：扫描器必须拓到合成的违规写法，也必须放过正确写法与注释。
 /// 只验一侧的话，一个永远返回空列表的扫描器也能完美交差。
 #[test]
-fn the_scanner_actually_catches_bash4_syntax() {
-    let bad = "#!/usr/bin/env bash\ndeclare -A m\nmapfile -t x < f\n";
-    assert_eq!(
-        banned_hits(bad).len(),
-        2,
-        "扫描器没拓到合成的违规写法：{:?}",
-        banned_hits(bad)
-    );
-    let commented = "# 这里提到 declare -A 和 mapfile\necho ok\n";
+fn the_scanners_catch_what_they_claim_to_catch() {
+    let bad4 = "declare -A m\nmapfile -t x < f\n";
+    assert_eq!(banned_hits(bad4).len(), 2, "bash4 扫描器漏报：{:?}", banned_hits(bad4));
     assert!(
-        banned_hits(commented).is_empty(),
-        "注释里的提到被当成了真用法（误报）"
+        banned_hits("# 这里提到 declare -A 和 mapfile\necho ok\n").is_empty(),
+        "bash4 扫描器把注释当成了真用法（误报）"
+    );
+
+    // 这一行里 $channel 紧跟一个全角括号 —— 实测把 macOS 那条 job 弄红了两轮。
+    let bad_mb = "echo \"已写入 $channel（尝试 $attempts 次）\"\n";
+    let hits = dollar_before_multibyte(bad_mb);
+    assert_eq!(hits.len(), 1, "多字节扫描器漏报：{hits:?}");
+    assert!(hits[0].contains("$channel"), "拓错了变量：{hits:?}");
+
+    // 花括号写法与空格分隔都不得误报，否则它会变成一台假红工厂。
+    assert!(
+        dollar_before_multibyte("echo \"已写入 ${channel}（尝试 ${attempts} 次）\"\n").is_empty(),
+        "花括号写法被误报了"
+    );
+    assert!(
+        dollar_before_multibyte("echo \"已写入 $channel 次\"\n").is_empty(),
+        "空格分隔的写法被误报了"
     );
 }
 
@@ -74,8 +125,22 @@ fn cross_platform_scripts_avoid_bash4_only_syntax() {
     );
 }
 
-/// 回写脚本里的变量要先初始化：它们带 `set -u`，而 bash 3.2 对多行命令的解析
-/// 与新版不完全一致——上一轮就是一个未初始化的变量把整个 job 弄红的。
+#[test]
+fn cross_platform_scripts_never_put_a_variable_before_a_multibyte_char() {
+    let mut bad = Vec::new();
+    for s in CROSS_PLATFORM {
+        for hit in dollar_before_multibyte(&meta::read(s)) {
+            bad.push(format!("{s}:{hit}"));
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "bash 3.2 会把非 ASCII 字节当成变量名的一部分（实测连红两轮）：\n{}",
+        bad.join("\n")
+    );
+}
+
+/// 回写脚本里的变量要先初始化：它们带 `set -u`。
 #[test]
 fn the_report_script_initialises_its_variables() {
     let src = meta::read("scripts/report.sh");
