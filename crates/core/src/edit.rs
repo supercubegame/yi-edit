@@ -18,7 +18,8 @@
 //! - 连续的**单字符非空白**插入合成一组，上限 [`MAX_GROUP_CHARS`]。
 //! - 空白与换行自成一组并封口 —— 于是得到词级撤销。
 //! - 连续退格与连续向后删除各自合成一组。
-//! - 粘贴与全部替换各自一组：一下 Ctrl+Z 整个撤掉。
+//! - 粘贴、[`Doc::replace_range`]（替换选区）、[`Doc::replace_all`] 各自一组：
+//!   一下 Ctrl+Z 整个撤掉。
 //! - 光标移动 / 保存 / 失焦由上层调 [`Doc::commit_undo_group`] 封口。
 pub use crate::consts::MAX_UNDO;
 use crate::search::{self, SearchOptions};
@@ -289,13 +290,16 @@ impl Doc {
         removed
     }
 
-    /// 开一个新组。超过上限时丢最旧的一组（而不是拒绝新编辑）。
-    fn push_group(&mut self, op: EditOp, coalesce: Coalesce, chars: usize) {
+    /// 推一个新组。超过上限时丢最旧的一组（而不是拒绝新编辑）。
+    fn push_group(&mut self, ops: Vec<EditOp>, coalesce: Coalesce, chars: usize) {
+        if ops.is_empty() {
+            return;
+        }
         if self.undo.len() >= MAX_UNDO {
             self.undo.remove(0);
         }
         self.undo.push(Group {
-            ops: vec![op],
+            ops,
             coalesce,
             chars,
         });
@@ -321,10 +325,10 @@ impl Doc {
         // 多字符（粘贴 / IME 上屏）也自成一组：一下 Ctrl+Z 整个撤掉。
         if !single_char || is_space {
             self.push_group(
-                EditOp::Insert {
+                vec![EditOp::Insert {
                     at,
                     text: text.to_string(),
-                },
+                }],
                 Coalesce::Never,
                 0,
             );
@@ -351,10 +355,10 @@ impl Doc {
             }
         }
         self.push_group(
-            EditOp::Insert {
+            vec![EditOp::Insert {
                 at,
                 text: text.to_string(),
-            },
+            }],
             Coalesce::Typing,
             1,
         );
@@ -403,10 +407,10 @@ impl Doc {
             }
         }
         self.push_group(
-            EditOp::Delete {
+            vec![EditOp::Delete {
                 from,
                 text: text.clone(),
-            },
+            }],
             if single_char {
                 Coalesce::Deleting
             } else {
@@ -415,6 +419,32 @@ impl Doc {
             usize::from(single_char),
         );
         text
+    }
+
+    /// 把 [from, to) 换成 `text`，**两个算子装进同一组**。
+    ///
+    /// 为什么需要它：先 delete 再 insert 会得到两组，于是用户有选区时粘贴一段，
+    /// 敲一下 Ctrl+Z 会停在一个**他从没见过的中间状态**（选区已删、新内容未插）。
+    /// 那不会报错，只会让人以为编辑器坏了。
+    pub fn replace_range(&mut self, from: Pos, to: Pos, text: &str) -> Pos {
+        let (from, to) = order(self.clamp(from), self.clamp(to));
+        let removed = self.apply_delete(from, to);
+        let end = self.apply_insert(from, text);
+        let mut ops: Vec<EditOp> = Vec::with_capacity(2);
+        if !removed.is_empty() {
+            ops.push(EditOp::Delete {
+                from,
+                text: removed,
+            });
+        }
+        if !text.is_empty() {
+            ops.push(EditOp::Insert {
+                at: from,
+                text: text.to_string(),
+            });
+        }
+        self.push_group(ops, Coalesce::Never, 0);
+        end
     }
 
     fn invert(&mut self, op: &EditOp) -> Pos {
@@ -513,17 +543,7 @@ impl Doc {
             });
             n += 1;
         }
-        if self.undo.len() >= MAX_UNDO {
-            self.undo.remove(0);
-        }
-        self.undo.push(Group {
-            ops,
-            coalesce: Coalesce::Never,
-            chars: 0,
-        });
-        self.redo.clear();
-        self.dirty = true;
-        self.open = false;
+        self.push_group(ops, Coalesce::Never, 0);
         n
     }
 }
