@@ -29,6 +29,32 @@ pub use status::StatusBar;
 pub const MAX_HITS: usize = 5000;
 pub const WINDOW_LINES: usize = 400;
 
+/// 一次保存的结果。
+///
+/// `overwrote` 存在的理由：另存为时静默盖掉别人的文件，与新建一个文件
+/// 在界面上长得一模一样，而前者会让人丢数据。上层必须能区分它们。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Saved {
+    pub path: PathBuf,
+    pub bytes: usize,
+    pub overwrote: bool,
+}
+
+impl Saved {
+    /// 状态栏用的一句话。覆盖必须说出来。
+    pub fn message(&self) -> String {
+        if self.overwrote {
+            format!(
+                "已保存 {}（{} 字节，覆盖了已有文件）",
+                self.path.display(),
+                self.bytes
+            )
+        } else {
+            format!("已保存 {}（{} 字节，新建）", self.path.display(), self.bytes)
+        }
+    }
+}
+
 fn clamp_col(line: &str, col: usize) -> usize {
     let mut c = col.min(line.len());
     while c > 0 && !line.is_char_boundary(c) {
@@ -69,6 +95,20 @@ impl Editor {
             status: String::from("Yi Edit 已就绪"),
             states: Vec::new(),
         }
+    }
+
+    /// 新建一个空文档。
+    ///
+    /// 为什么不只把文本清空：那会把上一份文档的撤销栈留下来，于是一下 Ctrl+Z
+    /// 能把新文档“撤”回上一个文件的内容。那不会报错，只会让人以为自己敲错了。
+    pub fn new_file(&mut self) {
+        self.path = None;
+        self.source = Source::Memory(Doc::new());
+        self.lang = Lang::Text;
+        self.cursor = Pos::default();
+        self.anchor = None;
+        self.states.clear();
+        self.status = String::from("新文件（还没有路径，保存时在上方输入）");
     }
 
     pub fn open(path: &Path) -> io::Result<Self> {
@@ -271,11 +311,53 @@ impl Editor {
         self.cursor = Pos::new(last, len);
     }
 
-    pub fn save(&mut self) -> io::Result<()> {
-        let Some(path) = self.path.clone() else { return Err(io::Error::new(io::ErrorKind::InvalidInput, "还没有文件名，先在上方输入路径")); };
+    /// 保存到当前路径。没路径时报错而不是静默丢掉内容。
+    pub fn save(&mut self) -> io::Result<Saved> {
+        let Some(path) = self.path.clone() else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "还没有文件名：在上方输入路径后再保存（或用另存为）",
+            ));
+        };
+        self.write_to(&path)
+    }
+
+    /// 另存为。除了写盘，它还必须重新认一次语言并丢掉高亮缓存：
+    /// 把一份文本另存成 `.rs` 之后它应该按 Rust 上色。不重算的话不会报错，
+    /// 只是颜色一直停在旧语言上，而用户会以为高亮坐坏了。
+    pub fn save_as(&mut self, path: &Path) -> io::Result<Saved> {
+        if path.as_os_str().is_empty() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "路径是空的"));
+        }
+        let saved = self.write_to(path)?;
+        self.path = Some(path.to_path_buf());
+        let lang = lang_from_path(&path.to_string_lossy());
+        if lang != self.lang {
+            self.lang = lang;
+            self.states.clear();
+        }
+        Ok(saved)
+    }
+
+    fn write_to(&mut self, path: &Path) -> io::Result<Saved> {
+        let existed = fio::info(path).is_ok();
         match &mut self.source {
-            Source::Memory(d) => { let text = d.to_text(); fio::save_atomic(&path, text.as_bytes())?; d.mark_saved(); self.status = format!("已保存 {} （{} 字节）", path.display(), text.len()); Ok(()) }
-            Source::Huge { .. } => Err(io::Error::new(io::ErrorKind::Unsupported, "大文件为只读模式，没有未保存的修改")),
+            Source::Memory(d) => {
+                let text = d.to_text();
+                fio::save_atomic(path, text.as_bytes())?;
+                d.mark_saved();
+                let saved = Saved {
+                    path: path.to_path_buf(),
+                    bytes: text.len(),
+                    overwrote: existed,
+                };
+                self.status = saved.message();
+                Ok(saved)
+            }
+            Source::Huge { .. } => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "大文件为只读模式，没有未保存的修改",
+            )),
         }
     }
 
@@ -323,9 +405,11 @@ pub const WELCOME: &str = "# Yi Edit
 
 极简跳平台代码编辑器。快捷键：
 
+Ctrl+N  新建文件
 Ctrl+O  打开输入框里的路径
 Ctrl+S  保存（写临时文件再 rename，不会把原文件写成半截）
-Ctrl+F  定位到查找框
+Ctrl+Shift+S  另存为上方输入框里的路径
+Ctrl+F  开关查找栏
 Ctrl+A  全选
 Ctrl+C / Ctrl+X / Ctrl+V  复制 / 剪切 / 粘贴
 Ctrl+Z / Ctrl+Y  撤销 / 重做（按输入组，不是每个字符一步）
