@@ -15,6 +15,7 @@ pub mod highlight;
 pub mod lines;
 pub mod replace;
 pub mod search;
+pub mod stream;
 
 pub use consts::{CHUNK_OVERLAP, CHUNK_SIZE, HUGE_FILE_THRESHOLD, MAX_PATTERN_LEN, MAX_UNDO};
 pub use edit::{Doc, EditOp, Eol, Pos};
@@ -22,3 +23,4 @@ pub use highlight::{highlight_line, lang_from_path, Lang, LineState, Span, Token
 pub use lines::LineIndex;
 pub use replace::{replace_all, ReplaceError, StreamReplacer};
 pub use search::{find_all, find_before, find_from, SearchOptions};
+pub use stream::StreamSearcher;
