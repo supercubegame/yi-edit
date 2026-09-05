@@ -1,12 +1,10 @@
-//! Yi Edit GUI 外壳。编辑器会话逻辑在 `yi-edit-session`，这一层只负责启动与字体。
+//! Yi Edit GUI 外壳。编辑器会话逻辑在 `yi-edit-session`，这一层只负责启动、字体与绘制。
 
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod editor {
-    pub use yi_edit_session::*;
-}
 mod shot;
+mod theme;
 mod ui;
 
 use std::path::PathBuf;
@@ -16,7 +14,7 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([640.0, 400.0])
+            .with_min_inner_size([720.0, 420.0])
             .with_title("Yi Edit"),
         ..Default::default()
     };
@@ -25,7 +23,7 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             ui::install_fonts(&cc.egui_ctx);
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            ui::install_style(&cc.egui_ctx);
             Ok(Box::new(ui::YiEdit::new(arg)))
         }),
     )
