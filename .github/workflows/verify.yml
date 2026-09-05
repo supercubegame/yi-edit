@@ -4,22 +4,36 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # 上游漂（egui / image / rustc）是时间驱动的：人家改格式那天我可能一行代码都没推。
+  schedule:
+    - cron: "17 3 * * 1"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
+  issues: write
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   gate:
+    name: 快闸门
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Rust
-        run: rustup show active-toolchain
+      - name: Toolchain
+        run: |
+          rustup show active-toolchain
+          cargo --version
+          rustfmt --version
+      # 闸门那步允许失败继续，否则报告传不回来；最后再用单独一步让 job 真的失败。
       - name: Run gate
+        continue-on-error: true
         run: bash scripts/verify.sh
       - name: Upload gate evidence
         if: always()
@@ -29,6 +43,203 @@ jobs:
           path: |
             gate.log
             gate-result.txt
+            gate-metrics.txt
+          if-no-files-found: warn
       - name: Fail after evidence is uploaded
-        if: always() && hashFiles('gate-result.txt') != ''
-        run: test "$(grep '^fail=' gate-result.txt | cut -d= -f2)" = 0
+        if: always()
+        run: |
+          test -f gate-result.txt || { echo "闸门没有写出结果文件，这不是「通过」而是「未确认」"; exit 1; }
+          test "$(grep '^fail=' gate-result.txt | cut -d= -f2)" = 0
+
+  heavy:
+    name: 慢闸门 ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            probe: true
+          - os: macos-latest
+            probe: false
+          - os: windows-latest
+            probe: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Linux GUI deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-x11-dev \
+            libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            pkg-config xvfb mesa-utils fonts-droid-fallback
+      - name: Build release binaries
+        run: cargo build --release --workspace
+      - name: Upload executables
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: yi-edit-${{ matrix.os }}
+          path: |
+            target/release/yi-edit
+            target/release/yi-edit.exe
+          if-no-files-found: warn
+
+      - name: Screenshot checker selftest
+        if: matrix.probe
+        run: ./target/release/yi-shotcheck --selftest
+
+      - name: Fixtures
+        if: matrix.probe
+        run: |
+          mkdir -p shots
+          cat > sample.rs <<'EOF'
+          //! Yi Edit 高亮样例 / highlight sample
+          use std::collections::HashMap;
+
+          /// 中文注释：这一行用来验证字体回退。
+          fn main() {
+              let mut counts: HashMap<String, usize> = HashMap::new();
+              let text = "needle 中文字串 42";
+              for (i, word) in text.split_whitespace().enumerate() {
+                  *counts.entry(word.to_string()).or_insert(0) += i + 1;
+              }
+              /* 块注释
+                 跨行 */
+              println!("{counts:?} {} {}", 0xff_u8, 3.14);
+          }
+          EOF
+          python3 - <<'EOF'
+          line = "fn generated(x: usize) -> usize { let s = \"needle\"; x * 3 }\n"
+          target = 70 * 1024 * 1024
+          with open("big.rs", "w") as f:
+              n = 0
+              while n < target:
+                  f.write(line)
+                  n += len(line)
+          EOF
+          ls -l sample.rs big.rs
+      - name: Screenshot small file
+        if: matrix.probe
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WINIT_UNIX_BACKEND: x11
+          YI_EDIT_SHOT: shots/small.png
+          RUST_BACKTRACE: "1"
+        run: |
+          xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            ./target/release/yi-edit sample.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
+      - name: Screenshot huge file
+        if: matrix.probe
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WINIT_UNIX_BACKEND: x11
+          YI_EDIT_SHOT: shots/huge.png
+          RUST_BACKTRACE: "1"
+        run: |
+          xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            ./target/release/yi-edit big.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
+      - name: Check screenshots
+        if: matrix.probe
+        run: |
+          ls -l shots || true
+          ./target/release/yi-shotcheck shots/small.png shots/huge.png > shotcheck.txt 2>&1 || {
+            cat shotcheck.txt
+            exit 1
+          }
+          cat shotcheck.txt
+      - name: Benchmark
+        if: matrix.probe
+        env:
+          YI_EDIT_BENCH_MB: "64"
+        run: ./target/release/yi-edit-bench
+      - name: Upload heavy evidence
+        if: always() && matrix.probe
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: heavy-evidence
+          path: |
+            shots
+            shotcheck.txt
+            bench-result.txt
+            app-run.txt
+          if-no-files-found: warn
+
+  report:
+    name: 回写报告
+    needs: [gate, heavy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GATE_RESULT: ${{ needs.gate.result }}
+      HEAVY_RESULT: ${{ needs.heavy.result }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+        continue-on-error: true
+      # 兑底评论前置：它每次都跑，不会烂在一个从没走过的分支里。
+      - name: Fallback report first
+        run: |
+          {
+            echo "## Yi Edit 闸门（简版）"
+            echo
+            echo "- 快闸门：$GATE_RESULT"
+            echo "- 慢闸门：$HEAVY_RESULT"
+            echo
+            echo "富文本版本就会盖掉这条；如果你看到的是这一条，说明报告拼接那一步挂了。"
+          } > gate-report-min.md
+          bash scripts/report.sh gate-report-min.md
+      - name: Rich report
+        run: |
+          bash scripts/build-report.sh gate-report.md
+          bash scripts/report.sh gate-report.md
+      - name: Upload report body
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: report-body
+          path: |
+            gate-report.md
+            gate-report-min.md
+            report-attempts.txt
+          if-no-files-found: warn
+
+  attest:
+    name: 送达核对
+    needs: report
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Attest the report was delivered
+        run: bash scripts/attest.sh
+
+  verdict:
+    name: 总判
+    needs: [gate, heavy, report, attest]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any stage failed
+        run: |
+          echo "gate=${{ needs.gate.result }} heavy=${{ needs.heavy.result }} report=${{ needs.report.result }} attest=${{ needs.attest.result }}"
+          for r in "${{ needs.gate.result }}" "${{ needs.heavy.result }}" "${{ needs.report.result }}" "${{ needs.attest.result }}"; do
+            if [ "$r" != "success" ]; then
+              echo "有阶段没成功：$r"
+              exit 1
+            fi
+          done

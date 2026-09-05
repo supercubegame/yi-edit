@@ -32,12 +32,12 @@ run() {
 }
 
 # ---- 阻断项 ----
+# 按 crate 选，不用 --workspace：crates/app 里的 egui 不得进快闸门（meta 里有断言守这一条）。
 run "core/fileio/meta tests" cargo test -p yi-edit-core -p yi-edit-fileio -p yi-edit-meta
-run "shotcheck selftest" bash -c 'cargo run -q -p yi-edit --bin yi-shotcheck -- --selftest'
 
 # ---- 参考项（不阻断，但必须把实测值报出来）----
-# fmt 目前不阻断，因为首轮代码是手写的。这笔欠账登记在 docs/OBLIGATIONS.md，
-# 带期限，到期判红 —— 而不是「下次顺手做」。
+# fmt 目前不阻断，因为首轮代码是在没有 Rust 工具链的环境里手写的。
+# 这笔欠账登记在 docs/OBLIGATIONS.md，带期限，到期判红 —— 而不是「下次顺手做」。
 fmt_out=$(cargo fmt --all -- --check 2>&1 || true)
 fmt_files=$(printf '%s\n' "$fmt_out" | grep -c '^Diff in ' || true)
 printf 'fmt_diff_lines=%s\n' "${fmt_files:-0}" >> "$METRICS"
