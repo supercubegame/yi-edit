@@ -1,0 +1,345 @@
+name: verify
+
+# 一个提交只跑一条 run。push 与 PR 同时触发的话，两条 run 会抢同一条带 marker
+# 的评论，而送达核对要求评论里带着自己那次的 run id（幂等写入必须铉本次运行，
+# 否则「存在一条带 marker 的评论」就是经典假绿）—— 于是先完成的那条会自己判红。
+# 顺便两条回写通道都会真的跑一遍：特性分支走 PR 评论，main 走提交评论。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # 上游漂（egui / image / rustc）是时间驱动的：人家改格式那天我可能一行代码都没推。
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+# permissions 一写就变白名单：没列的范围全部变 none。
+# actions: read 是下载产物需要的 —— 实测过：没给它时报告里一份产物都没有。
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: 快闸门
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain
+        run: |
+          rustup show active-toolchain
+          cargo --version
+          rustfmt --version
+      # 闸门那步允许失败继续，否则报告传不回来；最后再用单独一步让 job 真的失败。
+      - name: Run gate
+        id: gate
+        continue-on-error: true
+        run: bash scripts/verify.sh
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gate-evidence
+          path: |
+            gate.log
+            gate-result.txt
+            gate-metrics.txt
+          if-no-files-found: warn
+      # 不是断言，只是把原始输出搬到我读得到的通道上。放在最终判定之前。
+      - name: Post raw fast-gate log
+        id: raw
+        continue-on-error: true
+        run: bash scripts/raw-log.sh "快闸门原始输出" 2 gate.log gate-result.txt > raw-log-run.txt 2>&1
+      # 第二次调用把第一次的 stderr 与退出码一起发出去：回写脚本自己的失败
+      # 是唯一一处不能靠它自己报的地方（观察者不能是被观察的那个）。
+      - name: Post raw fast-gate log with its own trace
+        if: always()
+        run: |
+          echo "raw_log_outcome=${{ steps.raw.outcome }}" >> raw-log-run.txt
+          bash scripts/raw-log.sh "快闸门原始输出" 2 raw-log-run.txt gate.log gate-result.txt
+      - name: Fail after evidence is uploaded
+        if: always()
+        run: |
+          test -f gate-result.txt || { echo "闸门没有写出结果文件，这不是「通过」而是「未确认」"; exit 1; }
+          test "$(grep '^fail=' gate-result.txt | cut -d= -f2)" = 0
+
+  heavy:
+    name: 慢闸门 ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            probe: true
+            marker_line: 3
+          - os: macos-latest
+            probe: false
+            marker_line: 4
+          - os: windows-latest
+            probe: false
+            marker_line: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Linux GUI deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-x11-dev \
+            libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            pkg-config xvfb mesa-utils fonts-droid-fallback
+      - name: Build release binaries
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: cargo build --release --workspace > build.log 2>&1
+      - name: Upload executables
+        id: upload_bin
+        continue-on-error: true
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: yi-edit-${{ matrix.os }}
+          path: |
+            target/release/yi-edit
+            target/release/yi-edit.exe
+          if-no-files-found: warn
+
+      - name: Screenshot checker selftest
+        id: selftest
+        continue-on-error: true
+        if: matrix.probe && steps.build.outcome == 'success'
+        run: ./target/release/yi-shotcheck --selftest
+
+      - name: Fixtures
+        id: fixtures
+        continue-on-error: true
+        if: matrix.probe && steps.build.outcome == 'success'
+        run: |
+          mkdir -p shots
+          cat > sample.rs <<'EOF'
+          //! Yi Edit highlight sample
+          use std::collections::HashMap;
+
+          /// 中文注释：这一行用来验证字体回退。
+          fn main() {
+              let mut counts: HashMap<String, usize> = HashMap::new();
+              let text = "needle 中文字串 42";
+              for (i, word) in text.split_whitespace().enumerate() {
+                  *counts.entry(word.to_string()).or_insert(0) += i + 1;
+              }
+              /* 块注释
+                 跨行 */
+              let _ = (0xff_u8, 3.14, counts.len());
+          }
+          EOF
+          python3 - <<'EOF'
+          line = 'fn generated(x: usize) -> usize { let s = "needle"; x * 3 }\n'
+          target = 70 * 1024 * 1024
+          with open("big.rs", "w") as f:
+              n = 0
+              while n < target:
+                  f.write(line)
+                  n += len(line)
+          EOF
+          ls -l sample.rs big.rs
+      - name: Screenshot small file
+        id: shot_small
+        continue-on-error: true
+        if: matrix.probe && steps.build.outcome == 'success'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WINIT_UNIX_BACKEND: x11
+          YI_EDIT_SHOT: shots/small.png
+          RUST_BACKTRACE: "1"
+        run: |
+          xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            ./target/release/yi-edit sample.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
+      - name: Screenshot huge file
+        id: shot_huge
+        continue-on-error: true
+        if: matrix.probe && steps.build.outcome == 'success'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WINIT_UNIX_BACKEND: x11
+          YI_EDIT_SHOT: shots/huge.png
+          RUST_BACKTRACE: "1"
+        run: |
+          xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            ./target/release/yi-edit big.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
+      # 尺寸断言现在真的在守：1280x800 是实测值，不是拍的。
+      - name: Check screenshots
+        id: shots
+        continue-on-error: true
+        if: matrix.probe && steps.build.outcome == 'success'
+        run: |
+          ls -l shots || true
+          ./target/release/yi-shotcheck --size 1280x800 shots/small.png shots/huge.png > shotcheck.txt 2>&1
+          cat shotcheck.txt
+      - name: Benchmark
+        id: bench
+        continue-on-error: true
+        if: matrix.probe && steps.build.outcome == 'success'
+        env:
+          YI_EDIT_BENCH_MB: "64"
+        run: ./target/release/yi-edit-bench > bench-run.txt 2>&1
+      - name: Upload heavy evidence
+        id: upload_evidence
+        continue-on-error: true
+        if: always() && matrix.probe
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: heavy-evidence
+          path: |
+            shots
+            shotcheck.txt
+            bench-result.txt
+            bench-run.txt
+            app-run.txt
+            build.log
+          if-no-files-found: warn
+
+      # 判定前置到回写之前，并把自己的结果也写进文件：否则「哪一步红了」只存在于
+      # 我读不到的 CI 日志里，而那时候手里只剩一个比特。
+      - name: Evaluate steps
+        id: verdict
+        continue-on-error: true
+        shell: bash
+        run: |
+          {
+            echo "os=${{ matrix.os }} probe=${{ matrix.probe }}"
+            echo "bash=$BASH_VERSION"
+            echo "build=${{ steps.build.outcome }}"
+            echo "upload_bin=${{ steps.upload_bin.outcome }}"
+            echo "selftest=${{ steps.selftest.outcome }}"
+            echo "fixtures=${{ steps.fixtures.outcome }}"
+            echo "shot_small=${{ steps.shot_small.outcome }}"
+            echo "shot_huge=${{ steps.shot_huge.outcome }}"
+            echo "shots=${{ steps.shots.outcome }}"
+            echo "bench=${{ steps.bench.outcome }}"
+            echo "upload_evidence=${{ steps.upload_evidence.outcome }}"
+            echo "--- target/release ---"
+            ls -l target/release 2>/dev/null | head -n 20 || echo "target/release 不存在"
+          } > outcomes.txt
+          cat outcomes.txt
+          fail=0
+          note() { echo "VERDICT FAIL: $1" | tee -a outcomes.txt; fail=1; }
+          [ "${{ steps.build.outcome }}" = success ] || note "构建没成功"
+          if [ "${{ matrix.probe }}" = "true" ]; then
+            [ "${{ steps.selftest.outcome }}" = success ] || note "截图检查器自测没过"
+            [ "${{ steps.fixtures.outcome }}" = success ] || note "夹具生成没成功"
+            [ "${{ steps.shots.outcome }}" = success ] || note "截图检查没过"
+            [ "${{ steps.bench.outcome }}" = success ] || note "基准没过"
+          fi
+          exit "$fail"
+      # 每个平台一个 marker：三个平台共用一个的话，后面的会把前面的盖掉，
+      # 而覆盖的表现是「那条日志本来就不存在」。
+      - name: Post raw slow-gate log
+        id: raw
+        continue-on-error: true
+        shell: bash
+        run: |
+          bash scripts/raw-log.sh "慢闸门原始输出 ${{ matrix.os }}" ${{ matrix.marker_line }} \
+            outcomes.txt build.log app-run.txt shotcheck.txt bench-run.txt > raw-log-run.txt 2>&1
+      - name: Post raw slow-gate log with its own trace
+        if: always()
+        shell: bash
+        run: |
+          echo "raw_log_outcome=${{ steps.raw.outcome }}" >> raw-log-run.txt
+          bash scripts/raw-log.sh "慢闸门原始输出 ${{ matrix.os }}" ${{ matrix.marker_line }} \
+            raw-log-run.txt outcomes.txt build.log app-run.txt shotcheck.txt bench-run.txt
+      - name: Fail if the evaluation failed
+        if: always()
+        shell: bash
+        run: test "${{ steps.verdict.outcome }}" = success
+
+  report:
+    name: 回写报告
+    needs: [gate, heavy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GATE_RESULT: ${{ needs.gate.result }}
+      HEAVY_RESULT: ${{ needs.heavy.result }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+        continue-on-error: true
+      # 兑底评论前置：它每次都跑，不会烂在一个从没走过的分支里。
+      - name: Fallback report first
+        run: |
+          {
+            echo "## Yi Edit 闸门（简版）"
+            echo
+            echo "- 快闸门：$GATE_RESULT"
+            echo "- 慢闸门：$HEAVY_RESULT"
+            echo
+            echo "富文本版本就会盖掉这条；如果你看到的是这一条，说明报告拼接那一步挂了。"
+          } > gate-report-min.md
+          bash scripts/report.sh gate-report-min.md 1
+      - name: Rich report
+        run: |
+          bash scripts/build-report.sh gate-report.md
+          bash scripts/report.sh gate-report.md 1
+      - name: Upload report body
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: report-body
+          path: |
+            gate-report.md
+            gate-report-min.md
+            report-attempts.txt
+          if-no-files-found: warn
+
+  attest:
+    name: 送达核对
+    needs: report
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Attest the report was delivered
+        run: bash scripts/attest.sh
+
+  verdict:
+    name: 总判
+    needs: [gate, heavy, report, attest]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any stage failed
+        run: |
+          echo "gate=${{ needs.gate.result }} heavy=${{ needs.heavy.result }} report=${{ needs.report.result }} attest=${{ needs.attest.result }}"
+          for r in "${{ needs.gate.result }}" "${{ needs.heavy.result }}" "${{ needs.report.result }}" "${{ needs.attest.result }}"; do
+            if [ "$r" != "success" ]; then
+              echo "有阶段没成功：$r"
+              exit 1
+            fi
+          done

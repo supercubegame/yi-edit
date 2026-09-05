@@ -1,0 +1,13 @@
+[package]
+name = "yi-edit-session"
+description = "编辑器会话：打开 / 保存 / 搜索 / 替换 / 光标导航。不依赖任何 GUI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# 故意不依赖 egui/eframe：这一层要能进快闸门，而快闸门不编 GUI。
+# crates/meta/tests/layering.rs 里有断言守这一条。
+[dependencies]
+yi-edit-core = { path = "../core" }
+yi-edit-fileio = { path = "../fileio" }
