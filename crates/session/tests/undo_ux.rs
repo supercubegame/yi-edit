@@ -5,7 +5,7 @@ use yi_edit_core::Pos;
 use yi_edit_session::Editor;
 
 struct Tmp(PathBuf);
-impl Tmp { fn new() -> Self { let d=std::env::temp_dir().join(format!("yi-undoux-{}",std::process::id())); let _=fs::remove_dir_all(&d); fs::create_dir_all(&d).unwrap(); Self(d) } fn file(&self,name:&str,t:&str)->PathBuf { let p=self.0.join(name); fs::write(&p,t.as_bytes()).unwrap(); p } }
+impl Tmp { fn new(tag:&str) -> Self { let d=std::env::temp_dir().join(format!("yi-undoux-{}-{tag}",std::process::id())); let _=fs::remove_dir_all(&d); fs::create_dir_all(&d).unwrap(); Self(d) } fn file(&self,name:&str,t:&str)->PathBuf { let p=self.0.join(name); fs::write(&p,t.as_bytes()).unwrap(); p } }
 impl Drop for Tmp { fn drop(&mut self){let _=fs::remove_dir_all(&self.0);} }
 
 fn depth(e:&Editor)->usize { e.doc().map(|d|d.undo_depth()).unwrap_or(0) }
@@ -13,7 +13,7 @@ fn type_text(e:&mut Editor,s:&str){for c in s.chars(){assert!(e.insert_text(&c.t
 
 #[test]
 fn session_typing_is_one_group_and_commit_splits_it(){
- let t=Tmp::new(); let p=t.file("typing.txt",""); let mut e=Editor::open(&p).unwrap();
+ let t=Tmp::new("typing"); let p=t.file("typing.txt",""); let mut e=Editor::open(&p).unwrap();
  type_text(&mut e,"ab"); assert_eq!(depth(&e),1);
  e.commit_undo_group(); type_text(&mut e,"cd"); assert_eq!(depth(&e),2);
  e.doc_mut().unwrap().undo(); assert_eq!(e.doc().unwrap().to_text(),"ab");
@@ -22,7 +22,7 @@ fn session_typing_is_one_group_and_commit_splits_it(){
 
 #[test]
 fn session_paste_over_selection_is_one_group(){
- let t=Tmp::new(); let p=t.file("paste.txt","one two"); let mut e=Editor::open(&p).unwrap();
+ let t=Tmp::new("paste"); let p=t.file("paste.txt","one two"); let mut e=Editor::open(&p).unwrap();
  e.anchor=Some(Pos::new(0,4)); e.cursor=Pos::new(0,7);
  assert!(e.insert_text("TWO")); assert_eq!(depth(&e),1);
  e.doc_mut().unwrap().undo(); assert_eq!(e.doc().unwrap().to_text(),"one two");
