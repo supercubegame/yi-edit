@@ -2,11 +2,16 @@
 # 快闸门。零依赖、不碰网络、不编 GUI（egui 一编就是几分钟，每轮都编就没人愿意跑它了）。
 # 不用管道：`cmd | tee` 会把 cmd 的退出码吃掉，而那是一条会自己变绿的假绿。
 #
-# **失败详情必须在日志末尾。** 实测踩过：回写发的是末尾 N 行，而参考项（fmt）
-# 的输出接在测试输出后面且足够长，把失败的测试名全部挤出了窗口。
-# 于是评论里只看到「失败 1 项」而定位不到根因 —— 等于没有报告。
-# 所以：参考项写 fmt.log（不进闸门日志），并在末尾重新追一遍失败那几步的输出。
-# crates/meta/tests/gate.rs 里有断言守这两条。
+# 两个实测踩过的坑，都属于「失败看不见」：
+#
+# 1. **失败详情必须在日志末尾。** 回写只带末尾 N 行，而参考项（fmt）的输出
+#    接在测试输出后面且足够长，把失败的测试名全部挤出了窗口。
+#    所以：参考项写 fmt.log（不进闸门日志），并在末尾重新追一遍失败那几步。
+# 2. **`cargo test` 默认 fail-fast。** 一个测试二进制红之后它直接退出，后面的
+#    二进制一个都不跑 —— 而「没跑」与「通过了」在输出里长得一模一样。
+#    一次变异体审计里四个变异体只有一个被审判了，就是这么淹掉的。
+#
+# crates/meta/tests/gate.rs 里两条都有断言守着。
 set -Eeuo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -19,6 +24,8 @@ FMT_LOG=fmt.log
 : > "${METRICS}"
 : > "${FMT_LOG}"
 rm -f gate-step-*.log
+rm -f gate-failed-steps.txt
+touch gate-failed-steps.txt
 
 pass=0
 fail=0
@@ -46,12 +53,11 @@ run() {
   fi
 }
 
-rm -f gate-failed-steps.txt
-touch gate-failed-steps.txt
-
 # ---- 阻断项 ----
 # 按 crate 选，不用 --workspace：crates/app 里的 egui 不得进快闸门（meta 里有断言守这一条）。
-run "core/fileio/meta tests" cargo test -p yi-edit-core -p yi-edit-fileio -p yi-edit-meta
+# --no-fail-fast：每个测试二进制都要跑完，否则第一个红的会把后面全部淹掉。
+run "core/fileio/meta tests" \
+  cargo test --no-fail-fast -p yi-edit-core -p yi-edit-fileio -p yi-edit-meta
 
 # ---- 参考项（不阻断）----
 # fmt 目前不阻断，欠账登记在 docs/OBLIGATIONS.md 的 OB-1，到期判红。
@@ -64,6 +70,7 @@ printf 'gate_pass=%s\ngate_fail=%s\n' "${pass}" "${fail}" >> "${METRICS}"
 printf 'pass=%s\nfail=%s\nfailed=%s\n' "${pass}" "${fail}" "${failed:-none}" > gate-result.txt
 
 # ---- 失败摘要：重新追到日志**末尾**，因为回写只带得走末尾那几十行 ----
+# 只抽带 FAILED / panicked / 断言消息的行，否则一堆 ok 同样会把失败挤出去。
 {
   printf '\n===== FAILURE SUMMARY =====\n'
   if [ "${fail}" -eq 0 ]; then
@@ -71,8 +78,8 @@ printf 'pass=%s\nfail=%s\nfailed=%s\n' "${pass}" "${fail}" "${failed:-none}" > g
   else
     while read -r f; do
       [ -f "${f}" ] || continue
-      printf -- '--- tail of %s ---\n' "${f}"
-      tail -n 40 "${f}"
+      printf -- '--- %s: failing tests ---\n' "${f}"
+      grep -E '(FAILED|panicked at|assertion|^error|left:|right:|^ *[a-z_]+$)' "${f}" | tail -n 60 || true
     done < gate-failed-steps.txt
   fi
 } >> "${LOG}"
