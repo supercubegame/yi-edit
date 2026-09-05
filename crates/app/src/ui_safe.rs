@@ -38,9 +38,7 @@ pub fn install_fonts(ctx: &egui::Context) {
         return;
     };
     let mut fonts = egui::FontDefinitions::default();
-    fonts
-        .font_data
-        .insert("cjk".into(), Arc::new(egui::FontData::from_owned(bytes)));
+    fonts.font_data.insert("cjk".into(), Arc::new(egui::FontData::from_owned(bytes)));
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         fonts.families.entry(family).or_default().push("cjk".into());
     }
@@ -82,32 +80,18 @@ impl YiEdit {
             None => (Editor::empty(), String::new()),
         };
         let mut out = Self {
-            ed,
-            path,
-            search: String::new(),
-            hits: Vec::new(),
-            listing: None,
-            show_sidebar: true,
-            ime: ImeAdapter::default(),
-            preedit: String::new(),
-            close_dialog: false,
-            force_close: false,
-            shot: Shot::from_env(),
+            ed, path, search: String::new(), hits: Vec::new(), listing: None,
+            show_sidebar: true, ime: ImeAdapter::default(), preedit: String::new(),
+            close_dialog: false, force_close: false, shot: Shot::from_env(),
         };
         out.refresh();
         out
     }
 
     fn refresh(&mut self) {
-        let dir = self
-            .ed
-            .path
-            .as_ref()
-            .and_then(|p| browser::dir_for(p))
+        let dir = self.ed.path.as_ref().and_then(|p| browser::dir_for(p))
             .or_else(|| std::env::current_dir().ok());
-        if let Some(dir) = dir {
-            self.listing = browser::list_dir(&dir, false).ok();
-        }
+        if let Some(dir) = dir { self.listing = browser::list_dir(&dir, false).ok(); }
     }
 
     fn open_file(&mut self, path: &std::path::Path) {
@@ -120,9 +104,7 @@ impl YiEdit {
     }
 
     fn insert(&mut self, text: &str) {
-        if !self.ed.is_huge() {
-            let _ = self.ed.insert_text(text);
-        }
+        if !self.ed.is_huge() { let _ = self.ed.insert_text(text); }
     }
 
     fn delete_surrounding(&mut self, before: usize, after: usize) {
@@ -141,10 +123,7 @@ impl YiEdit {
 
     fn handle_ime(&mut self, event: &egui::ImeEvent) {
         match self.ime.feed(event) {
-            AdapterEffect::Commit(text) => {
-                self.insert(&text);
-                self.ed.commit_undo_group();
-            }
+            AdapterEffect::Commit(text) => { self.insert(&text); self.ed.commit_undo_group(); }
             AdapterEffect::DeleteSurrounding { before_chars, after_chars } => {
                 self.delete_surrounding(before_chars, after_chars);
             }
@@ -158,20 +137,13 @@ impl YiEdit {
         for event in ctx.input(|i| i.events.clone()) {
             match event {
                 egui::Event::Ime(event) => self.handle_ime(&event),
-                egui::Event::Copy => {
-                    if let Some(text) = self.ed.selected_text() { ctx.copy_text(text); }
-                }
-                egui::Event::Cut => {
-                    if let Some(text) = self.ed.cut_selection() { ctx.copy_text(text); }
-                }
+                egui::Event::Copy => { if let Some(text) = self.ed.selected_text() { ctx.copy_text(text); } }
+                egui::Event::Cut => { if let Some(text) = self.ed.cut_selection() { ctx.copy_text(text); } }
                 egui::Event::Paste(text) => self.insert(&text.replace("\r\n", "\n")),
                 egui::Event::Text(text) => self.insert(&text),
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
-                    if modifiers.command && key == egui::Key::A {
-                        self.ed.select_all();
-                    } else if modifiers.command && key == egui::Key::S {
-                        let _ = self.ed.save();
-                    }
+                    if modifiers.command && key == egui::Key::A { self.ed.select_all(); }
+                    else if modifiers.command && key == egui::Key::S { let _ = self.ed.save(); }
                 }
                 _ => {}
             }
@@ -179,7 +151,7 @@ impl YiEdit {
     }
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_centered(|ui| {
             ui.label(egui::RichText::new("Yi Edit").font(sans(14.0)));
             if ui.button("侧栏").clicked() { self.show_sidebar = !self.show_sidebar; }
             if ui.button("保存").clicked() { let _ = self.ed.save(); }
@@ -210,31 +182,35 @@ impl YiEdit {
     }
 
     fn editor(&mut self, ui: &mut egui::Ui) {
+        ui.painter().rect_filled(ui.max_rect(), 0.0, th::BG);
         ui.spacing_mut().item_spacing.y = 0.0;
         let row_h = ui.text_style_height(&egui::TextStyle::Monospace).max(th::FONT_SIZE);
         let total = self.ed.line_count().max(1);
-        egui::ScrollArea::both().show_rows(ui, row_h, total, |ui, rows| {
+        egui::ScrollArea::both().auto_shrink([false, false]).show_rows(ui, row_h, total, |ui, rows| {
             for row in rows {
                 let text = self.ed.line(row);
                 let state = self.ed.state_at(row);
                 let (spans, _) = highlight_line(&text, self.ed.lang, state);
                 let (rect, response) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width().max(700.0), row_h),
-                    egui::Sense::click(),
-                );
+                    egui::vec2(ui.available_width().max(700.0), row_h), egui::Sense::click());
                 let painter = ui.painter_at(rect);
                 let x = rect.min.x + th::GUTTER_W;
-                painter.text(egui::pos2(x - 8.0, rect.min.y), egui::Align2::RIGHT_TOP, (row + 1).to_string(), mono(), th::TEXT_DIM);
+                painter.text(egui::pos2(x - 8.0, rect.min.y), egui::Align2::RIGHT_TOP,
+                    (row + 1).to_string(), mono(), th::TEXT_DIM);
                 let mut job = egui::text::LayoutJob::default();
                 for span in spans {
-                    job.append(&text[span.start..span.end], 0.0, egui::TextFormat { font_id: mono(), color: token_color(span.kind), ..Default::default() });
+                    job.append(&text[span.start..span.end], 0.0, egui::TextFormat {
+                        font_id: mono(), color: token_color(span.kind), ..Default::default()
+                    });
                 }
                 painter.galley(egui::pos2(x, rect.min.y), ui.painter().layout_job(job), th::TEXT);
                 if row == self.ed.cursor.line && !self.preedit.is_empty() {
                     let prefix = text[..self.ed.cursor.col.min(text.len())].to_owned();
                     let cx = x + ui.painter().layout_no_wrap(prefix, mono(), th::TEXT).rect.width();
-                    painter.text(egui::pos2(cx, rect.min.y), egui::Align2::LEFT_TOP, &self.preedit, mono(), th::ACCENT);
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::IMERect(egui::Rect::from_min_size(egui::pos2(cx, rect.min.y), egui::vec2(2.0, row_h))));
+                    painter.text(egui::pos2(cx, rect.min.y), egui::Align2::LEFT_TOP,
+                        &self.preedit, mono(), th::ACCENT);
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::IMERect(
+                        egui::Rect::from_min_size(egui::pos2(cx, rect.min.y), egui::vec2(2.0, row_h))));
                 }
                 if response.clicked() { self.ed.commit_undo_group(); }
             }
@@ -247,17 +223,31 @@ impl eframe::App for YiEdit {
         let ctx = ui.ctx().clone();
         self.shot.tick(&ctx);
         self.handle_events(&ctx);
-        ui.vertical(|ui| {
-            self.toolbar(ui);
-            ui.horizontal(|ui| {
+
+        // Keep the three bands explicit: the editor receives all remaining height.
+        let full = ui.available_size();
+        let toolbar_h = 36.0;
+        let status_h = 28.0;
+        let body_h = (full.y - toolbar_h - status_h).max(1.0);
+        ui.allocate_ui_with_layout(egui::vec2(full.x, toolbar_h),
+            egui::Layout::left_to_right(egui::Align::Center), |ui| self.toolbar(ui));
+        ui.allocate_ui_with_layout(egui::vec2(full.x, body_h),
+            egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                ui.painter().rect_filled(ui.max_rect(), 0.0, th::BG);
                 if self.show_sidebar {
-                    ui.allocate_ui(egui::vec2(th::SIDEBAR_W, ui.available_height()), |ui| self.sidebar(ui));
+                    let sidebar_w = th::SIDEBAR_W.min(ui.available_width().max(1.0));
+                    ui.allocate_ui_with_layout(egui::vec2(sidebar_w, body_h),
+                        egui::Layout::top_down(egui::Align::Min), |ui| self.sidebar(ui));
                 }
-                self.editor(ui);
+                let editor_w = ui.available_width().max(1.0);
+                ui.allocate_ui_with_layout(egui::vec2(editor_w, body_h),
+                    egui::Layout::top_down(egui::Align::Min), |ui| self.editor(ui));
             });
-            ui.separator();
-            ui.label(self.ed.status_bar().position_text());
-        });
+        ui.allocate_ui_with_layout(egui::vec2(full.x, status_h),
+            egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.label(self.ed.status_bar().position_text());
+            });
+
         if ctx.input(|i| i.viewport().close_requested()) && !self.force_close && !self.shot.active() && self.ed.is_dirty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.close_dialog = true;
