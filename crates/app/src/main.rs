@@ -1,11 +1,11 @@
-//! Yi Edit GUI 外壳。编辑器会话逻辑在 `yi-edit-session`，这一层只负责启动、字体与绘制。
-
+//! Yi Edit GUI 外壳。
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ime_adapter;
 mod shot;
 mod theme;
+#[path = "ui_runtime.rs"]
 mod ui;
 
 use std::path::PathBuf;
