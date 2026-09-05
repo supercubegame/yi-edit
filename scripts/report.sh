@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# 把一份报告回写到我读得到的地方。两条通道：有 PR 写 PR 评论，没 PR 写提交评论。
+# 两条都有去重（只在一条上实现 marker 去重，生产里看不出来：每次推送都是新 SHA）。
+# 回写失败必须退非零：静默的回写失败与一切正常在面板上一模一样。
+set -Eeuo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT"
+
+BODY_FILE=${1:?用法: report.sh <body.md>}
+# marker 只存一份（scripts/marker.txt）：两处必须逐字相同的字串不能拄两份，
+# 拄两份的失败方式是「去重失效但一切全绿」。
+MARKER=$(head -n 1 scripts/marker.txt)
+
+REPO=${GITHUB_REPOSITORY:?}
+SHA=${GITHUB_SHA:?}
+RUN_ID=${GITHUB_RUN_ID:-local}
+
+BODY=$(printf '%s\n\n%s\n\n<sub>commit %s / run %s</sub>\n' \
+  "$MARKER" "$(cat "$BODY_FILE")" "${SHA:0:7}" "$RUN_ID")
+
+attempts=0
+try() {
+  local n=0
+  until "$@"; do
+    n=$((n + 1))
+    attempts=$((attempts + 1))
+    if (( n >= 3 )); then
+      echo "REPORT: 重试 $n 次仍失败：$*" >&2
+      return 1
+    fi
+    sleep 5
+  done
+  attempts=$((attempts + 1))
+  return 0
+}
+
+pr=""
+if [[ -n ${GITHUB_EVENT_PATH:-} && -f ${GITHUB_EVENT_PATH:-} ]]; then
+  pr=$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH")
+fi
+if [[ -z $pr ]]; then
+  pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
+fi
+
+find_existing() {
+  local list_path=$1
+  gh api "$list_path" --paginate \
+    --jq "[.[] | select(.body != null and (.body | contains(\"$MARKER\")))] | .[0].id // empty" \
+    2>/dev/null || true
+}
+
+if [[ -n $pr ]]; then
+  channel="pr#$pr"
+  existing=$(find_existing "repos/$REPO/issues/$pr/comments")
+  if [[ -n $existing ]]; then
+    try gh api -X PATCH "repos/$REPO/issues/comments/$existing" -f body="$BODY" > /dev/null
+  else
+    try gh api -X POST "repos/$REPO/issues/$pr/comments" -f body="$BODY" > /dev/null
+  fi
+else
+  channel="commit ${SHA:0:7}"
+  existing=$(find_existing "repos/$REPO/commits/$SHA/comments")
+  if [[ -n $existing ]]; then
+    try gh api -X PATCH "repos/$REPO/comments/$existing" -f body="$BODY" > /dev/null
+  else
+    try gh api -X POST "repos/$REPO/commits/$SHA/comments" -f body="$BODY" > /dev/null
+  fi
+fi
+
+# 尝试次数要进报告：否则「一次就过」与「第三次才过」长得一模一样，
+# 上游在慢慢变差就看不见。
+printf 'report_channel=%s\nreport_attempts=%s\nreport_updated_existing=%s\n' \
+  "$channel" "$attempts" "$([[ -n $existing ]] && echo yes || echo no)" >> report-attempts.txt
+echo "REPORT: 已写入 $channel（尝试 $attempts 次，复用已有评论：$([[ -n $existing ]] && echo yes || echo no)）"
