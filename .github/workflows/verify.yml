@@ -210,9 +210,13 @@ jobs:
         run: |
           xvfb-run -a --server-args="-screen 0 1280x800x24" \
             ./target/release/yi-edit big.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
-      # 四条带对应四个区域。**底部拆成两条**：0.90..1.00 把状态条（底部 26px
-      # = 0.9675..1.0）包进来了，于是即使编辑区底部空一大块，光靠状态条的文字
+      # 横带四条对应四个上下区域。**底部拆成两条**：0.90..1.00 把状态栏（底部 26px
+      # = 0.9675..1.0）包进来了，于是即使编辑区底部空一大块，光靠状态栏的文字
       # 就能让那条带变绿 —— 那就是一条会自己变绿的断言。
+      #
+      # 竖带两条是因为横带在左右方向上有同样的盲区：右侧跳转面板整条没画的话，
+      # 每一条横带里仍然有大量正文颜色，于是四条横带全绿而面板根本不存在。
+      # 侧栏 200px/1280 = 0..0.156，跳转面板 80px = 0.9375..1.0；带往内收一点避开边界。
       # 颜色数下限 8 只用来拓「这一条带是纯色的」；实测值见 docs/PITFALLS.md。
       - name: Check screenshots
         id: shots
@@ -222,6 +226,7 @@ jobs:
           ls -l shots || true
           ./target/release/yi-shotcheck --size 1280x800 \
             --band 0.00:0.05:8 --band 0.40:0.60:8 --band 0.88:0.96:8 --band 0.97:1.00:8 \
+            --vband 0.01:0.14:8 --vband 0.95:1.00:8 \
             shots/small.png shots/huge.png > shotcheck.txt 2>&1
           cat shotcheck.txt
       - name: Benchmark
