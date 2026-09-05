@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ime_adapter;
 mod shot;
 mod theme;
 mod ui;
