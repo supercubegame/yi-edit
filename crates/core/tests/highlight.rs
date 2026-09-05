@@ -65,7 +65,10 @@ fn spans_tile_the_line_on_char_boundaries() {
             }
         }
     }
-    assert!(checked >= 300, "只检查了 {checked} 组，语料或语言清单缩水了");
+    assert!(
+        checked >= 300,
+        "只检查了 {checked} 组，语料或语言清单缩水了"
+    );
 }
 
 #[test]
@@ -94,9 +97,16 @@ fn keywords_are_not_matched_inside_identifiers() {
 /// 不区分的话，它后面整行都会变成字符串色。
 #[test]
 fn rust_lifetime_is_not_a_string() {
-    let (spans, _) = highlight_line("fn f(s: &'a str) -> u8 { 1 }", Lang::Rust, LineState::default());
+    let (spans, _) = highlight_line(
+        "fn f(s: &'a str) -> u8 { 1 }",
+        Lang::Rust,
+        LineState::default(),
+    );
     let str_spans: Vec<_> = spans.iter().filter(|s| s.kind == TokenKind::Str).collect();
-    assert!(str_spans.is_empty(), "生命周期被当成字符串了：{str_spans:?}");
+    assert!(
+        str_spans.is_empty(),
+        "生命周期被当成字符串了：{str_spans:?}"
+    );
     let (spans2, _) = highlight_line("let c = 'x';", Lang::Rust, LineState::default());
     assert!(
         spans2.iter().any(|s| s.kind == TokenKind::Str),

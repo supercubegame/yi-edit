@@ -95,7 +95,10 @@ fn multiline_needle_finds_nothing_in_the_in_memory_editor() {
 fn undo_all_returns_to_the_original_text() {
     let original = "fn main() {\n    let x = 1;\n}\n中文行\n";
     let ops = 400usize;
-    assert!(ops < MAX_UNDO, "操作数必须小于 MAX_UNDO，否则测的是丢弃策略");
+    assert!(
+        ops < MAX_UNDO,
+        "操作数必须小于 MAX_UNDO，否则测的是丢弃策略"
+    );
 
     let mut d = Doc::from_text(original);
     let mut rng = Lcg(0x5eed_1234);
@@ -112,7 +115,11 @@ fn undo_all_returns_to_the_original_text() {
             d.insert(Pos::new(line, col), s);
         }
     }
-    assert_ne!(d.to_text(), original, "这串操作没改动任何东西，后面那条断言是空的");
+    assert_ne!(
+        d.to_text(),
+        original,
+        "这串操作没改动任何东西，后面那条断言是空的"
+    );
     assert!(d.undo_depth() <= MAX_UNDO);
 
     while d.can_undo() {

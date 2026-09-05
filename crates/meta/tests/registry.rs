@@ -42,7 +42,10 @@ fn every_crate_has_an_entry_point() {
         let has_lib = meta::exists(&format!("{m}/src/lib.rs"));
         let has_main = meta::exists(&format!("{m}/src/main.rs"));
         assert!(has_lib || has_main, "{m} 既没有 lib.rs 也没有 main.rs");
-        assert!(meta::exists(&format!("{m}/Cargo.toml")), "{m} 没有 Cargo.toml");
+        assert!(
+            meta::exists(&format!("{m}/Cargo.toml")),
+            "{m} 没有 Cargo.toml"
+        );
     }
 }
 

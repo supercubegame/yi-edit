@@ -72,7 +72,11 @@ fn parent_is_reported_and_missing_dir_is_an_error() {
     let sub = t.0.join("sub");
     fs::create_dir(&sub).unwrap();
     let l = browser::list_dir(&sub, false).unwrap();
-    assert_eq!(l.parent.as_deref(), Some(t.0.as_path()), "没报父目录，面板就上不去");
+    assert_eq!(
+        l.parent.as_deref(),
+        Some(t.0.as_path()),
+        "没报父目录，面板就上不去"
+    );
     assert!(l.entries.is_empty());
     assert_eq!(l.truncated, 0);
 
@@ -95,7 +99,10 @@ fn dir_for_points_at_the_containing_directory() {
 /// 这一条只声明自己验的是常量与字段，真实截断路径记在 docs/PITFALLS.md 里。
 #[test]
 fn the_entry_cap_is_sane_and_truncation_is_reportable() {
-    assert!(MAX_ENTRIES >= 500, "上限 {MAX_ENTRIES} 太小，普通仓库目录就会被截");
+    assert!(
+        MAX_ENTRIES >= 500,
+        "上限 {MAX_ENTRIES} 太小，普通仓库目录就会被截"
+    );
     let t = Tmp::new("cap");
     let l = browser::list_dir(&t.0, false).unwrap();
     assert_eq!(l.truncated, 0, "空目录却报了截断");

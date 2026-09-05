@@ -134,10 +134,7 @@ fn every_promised_region_is_actually_consumed_by_the_runtime() {
         "两个面板的开关不全"
     );
     // 截断必须在界面上有标记：静默截断与「就这么多命中」长得一模一样。
-    assert!(
-        src.contains("结果不完整"),
-        "命中被截断时界面上没有任何标记"
-    );
+    assert!(src.contains("结果不完整"), "命中被截断时界面上没有任何标记");
 }
 
 /// 焦点守卫。不问焦点的话，在查找框里敲的每一个字同时会被写进文档，
@@ -146,15 +143,12 @@ fn every_promised_region_is_actually_consumed_by_the_runtime() {
 fn typing_into_a_text_field_cannot_reach_the_document() {
     let src = app_ui_source();
     let code = meta::strip_comments_and_strings(&src);
-    assert!(
-        code.contains("m.focused()"),
-        "事件处理里没问过焦点归谁"
-    );
-    for guarded in ["Event::Text(text) if editor_focused", "Event::Paste(text) if editor_focused"] {
-        assert!(
-            code.contains(guarded),
-            "{guarded} 没有被焦点守卫拦着"
-        );
+    assert!(code.contains("m.focused()"), "事件处理里没问过焦点归谁");
+    for guarded in [
+        "Event::Text(text) if editor_focused",
+        "Event::Paste(text) if editor_focused",
+    ] {
+        assert!(code.contains(guarded), "{guarded} 没有被焦点守卫拦着");
     }
 }
 

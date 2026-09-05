@@ -74,11 +74,7 @@ fn save_and_quit_only_quits_when_the_save_really_succeeded() {
     );
 
     // 对照侧：“不保存退出”本来就应该无条件退。两侧一样的话，上面那条只是在匹配一个字符串。
-    let discard = segment(
-        &src,
-        "ui.button(\"不保存退出\")",
-        "ui.button(\"取消\")",
-    );
+    let discard = segment(&src, "ui.button(\"不保存退出\")", "ui.button(\"取消\")");
     assert!(
         discard.contains("force_close = true") && !discard.contains("save_current()"),
         "「不保存退出」居然也要先保存，那两个按钮就没区别了：{discard}"
@@ -113,10 +109,7 @@ fn new_file_refuses_to_discard_unsaved_work() {
         seg.contains("is_dirty()"),
         "新建没问过有没有未保存的修改：{seg}"
     );
-    assert!(
-        seg.contains("return"),
-        "问了却没拦住，那与没问一样：{seg}"
-    );
+    assert!(seg.contains("return"), "问了却没拦住，那与没问一样：{seg}");
 }
 
 /// 会话层真的提供了这两个入口，而且另存为真的重算了语言。

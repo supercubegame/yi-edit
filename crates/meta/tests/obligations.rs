@@ -93,7 +93,10 @@ fn ob1_is_either_pending_within_grace_or_done_and_removed() {
         return;
     }
 
-    assert!(listed, "{OB1_ID} 没做完却从清单上消失了，这就是「以后再说」");
+    assert!(
+        listed,
+        "{OB1_ID} 没做完却从清单上消失了，这就是「以后再说」"
+    );
     let now = now();
     assert!(
         now <= OB1_DEADLINE,
@@ -175,7 +178,10 @@ fn the_reasoned_records_section_exists_and_is_not_empty() {
 fn the_records_do_not_describe_limitations_the_code_already_lifted() {
     let fontpick = meta::read("crates/session/src/fontpick.rs");
     let accepts_collections = fontpick.contains(".ttc") && fontpick.contains("ttcf");
-    assert!(accepts_collections, "字体层不再处理字体集合了，这条断言得重写");
+    assert!(
+        accepts_collections,
+        "字体层不再处理字体集合了，这条断言得重写"
+    );
     let doc = meta::read("docs/OBLIGATIONS.md");
     let sections = meta::md_sections(&doc);
     let reasoned = sections

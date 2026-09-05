@@ -36,12 +36,20 @@ fn advance_agrees_with_the_document_for_single_and_multi_line_text() {
 #[test]
 fn typing_a_word_is_one_undo_step() {
     let word = "function";
-    assert!(word.chars().count() > 1, "语料只有一个字符，分组与不分组看不出区别");
+    assert!(
+        word.chars().count() > 1,
+        "语料只有一个字符，分组与不分组看不出区别"
+    );
 
     let mut d = Doc::from_text("");
     type_text(&mut d, Pos::new(0, 0), word);
     assert_eq!(d.to_text(), word);
-    assert_eq!(d.undo_depth(), 1, "敲 {} 个字符却分成了多组", word.chars().count());
+    assert_eq!(
+        d.undo_depth(),
+        1,
+        "敲 {} 个字符却分成了多组",
+        word.chars().count()
+    );
 
     d.undo();
     assert_eq!(d.to_text(), "", "一下撤销没把整个词撤掉");
@@ -143,7 +151,10 @@ fn a_paste_is_its_own_group() {
     type_text(&mut d, p, "xy");
     assert_eq!(d.undo_depth(), 2, "粘贴与之后的敲字被合成了一组");
     d.undo();
-    assert!(d.to_text().ends_with("第二行"), "撤销只应该退掉后敲的两个字");
+    assert!(
+        d.to_text().ends_with("第二行"),
+        "撤销只应该退掉后敲的两个字"
+    );
     d.undo();
     assert_eq!(d.to_text(), "", "一下撤销没把整个粘贴撤掉");
 }
@@ -156,7 +167,11 @@ fn saving_closes_the_group() {
     d.mark_saved();
     assert!(!d.is_dirty());
     type_text(&mut d, Pos::new(0, 2), "cd");
-    assert_eq!(d.undo_depth(), 2, "保存没有封口，保存前后的输入被合成了一组");
+    assert_eq!(
+        d.undo_depth(),
+        2,
+        "保存没有封口，保存前后的输入被合成了一组"
+    );
     d.undo();
     assert_eq!(d.to_text(), "ab", "撤销应该回到保存时的状态");
 }
@@ -183,7 +198,10 @@ fn replace_all_is_a_single_undo_step() {
 /// 上限两侧都断，并且真的敲超过上限时必须真的分成多组。
 #[test]
 fn the_group_cap_is_sane_and_really_caps() {
-    assert!(MAX_GROUP_CHARS >= 16, "上限 {MAX_GROUP_CHARS} 太小，连一个长词都装不下");
+    assert!(
+        MAX_GROUP_CHARS >= 16,
+        "上限 {MAX_GROUP_CHARS} 太小，连一个长词都装不下"
+    );
     assert!(
         MAX_GROUP_CHARS <= 1000,
         "上限 {MAX_GROUP_CHARS} 太大，形同无上限，一下 Ctrl+Z 会撤掉一整段"

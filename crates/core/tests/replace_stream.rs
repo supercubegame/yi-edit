@@ -1,6 +1,14 @@
-use yi_edit_core::{find_all, replace_all, ReplaceError, SearchOptions, StreamReplacer, MAX_PATTERN_LEN};
+use yi_edit_core::{
+    find_all, replace_all, ReplaceError, SearchOptions, StreamReplacer, MAX_PATTERN_LEN,
+};
 
-fn stream(input: &[u8], needle: &[u8], repl: &[u8], opts: SearchOptions, chunk: usize) -> (Vec<u8>, usize) {
+fn stream(
+    input: &[u8],
+    needle: &[u8],
+    repl: &[u8],
+    opts: SearchOptions,
+    chunk: usize,
+) -> (Vec<u8>, usize) {
     let mut r = StreamReplacer::new(needle, repl, opts).expect("模式合法");
     let mut out = Vec::new();
     for part in input.chunks(chunk.max(1)) {
@@ -28,15 +36,60 @@ fn cases() -> Vec<Case> {
         whole_word: true,
     };
     vec![
-        Case { hay: "foo bar foo baz foo", needle: "foo", repl: "XX", opts: exact },
-        Case { hay: "aaaa", needle: "aa", repl: "b", opts: exact },
-        Case { hay: "abcabcabc", needle: "cab", repl: "", opts: exact },
-        Case { hay: "Foo FOO foo", needle: "foo", repl: "bar", opts: ci },
-        Case { hay: "foo foobar foo_x foo", needle: "foo", repl: "Q", opts: ww },
-        Case { hay: "中文测试中文", needle: "中文", repl: "英文", opts: exact },
-        Case { hay: "no hits here", needle: "zzz", repl: "!", opts: exact },
-        Case { hay: "edge", needle: "edge", repl: "EDGE!", opts: exact },
-        Case { hay: "a\nb\na\nb", needle: "b\na", repl: "-", opts: exact },
+        Case {
+            hay: "foo bar foo baz foo",
+            needle: "foo",
+            repl: "XX",
+            opts: exact,
+        },
+        Case {
+            hay: "aaaa",
+            needle: "aa",
+            repl: "b",
+            opts: exact,
+        },
+        Case {
+            hay: "abcabcabc",
+            needle: "cab",
+            repl: "",
+            opts: exact,
+        },
+        Case {
+            hay: "Foo FOO foo",
+            needle: "foo",
+            repl: "bar",
+            opts: ci,
+        },
+        Case {
+            hay: "foo foobar foo_x foo",
+            needle: "foo",
+            repl: "Q",
+            opts: ww,
+        },
+        Case {
+            hay: "中文测试中文",
+            needle: "中文",
+            repl: "英文",
+            opts: exact,
+        },
+        Case {
+            hay: "no hits here",
+            needle: "zzz",
+            repl: "!",
+            opts: exact,
+        },
+        Case {
+            hay: "edge",
+            needle: "edge",
+            repl: "EDGE!",
+            opts: exact,
+        },
+        Case {
+            hay: "a\nb\na\nb",
+            needle: "b\na",
+            repl: "-",
+            opts: exact,
+        },
     ]
 }
 
@@ -56,7 +109,10 @@ fn fixture_really_contains_boundary_straddling_matches() {
             }
         }
     }
-    assert!(straddled >= 5, "只有 {straddled} 个跨块匹配，语料没真正压到边界");
+    assert!(
+        straddled >= 5,
+        "只有 {straddled} 个跨块匹配，语料没真正压到边界"
+    );
 }
 
 /// 承重断言：流式替换对**任意块大小**的输出，必须逐字节等于整缓冲区替换的输出，

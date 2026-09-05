@@ -67,8 +67,12 @@ impl Band {
                 axis.label()
             ));
         }
-        let from: f64 = parts[0].parse().map_err(|_| format!("起边界不是数：{s:?}"))?;
-        let to: f64 = parts[1].parse().map_err(|_| format!("止边界不是数：{s:?}"))?;
+        let from: f64 = parts[0]
+            .parse()
+            .map_err(|_| format!("起边界不是数：{s:?}"))?;
+        let to: f64 = parts[1]
+            .parse()
+            .map_err(|_| format!("止边界不是数：{s:?}"))?;
         let min_colors: usize = parts[2]
             .parse()
             .map_err(|_| format!("最少颜色数不是数：{s:?}"))?;
@@ -302,9 +306,7 @@ fn selftest() -> i32 {
         Err(e) => bad.push(format!("底部留白图解不开：{e}")),
     }
     match check(&padded, Some((w, h)), &[bottom_band]) {
-        Ok(r) if r.problems.is_empty() => bad.push(String::from(
-            "带检查没拓到底部留白，它是装饰",
-        )),
+        Ok(r) if r.problems.is_empty() => bad.push(String::from("带检查没拓到底部留白，它是装饰")),
         Ok(r) => println!(
             "selftest bottom-blank + band: 已正确判红（底带颜色数={}）",
             r.band_colors.first().map(|(_, n)| *n).unwrap_or(0)
@@ -335,9 +337,7 @@ fn selftest() -> i32 {
         Err(e) => bad.push(format!("右侧置空图解不开：{e}")),
     }
     match check(&blank_right, Some((w, h)), &[right_band]) {
-        Ok(r) if r.problems.is_empty() => {
-            bad.push(String::from("竖带没拓到右侧置空，它是装饰"))
-        }
+        Ok(r) if r.problems.is_empty() => bad.push(String::from("竖带没拓到右侧置空，它是装饰")),
         Ok(r) => println!(
             "selftest right-blank + vband: 已正确判红（右带颜色数={}）",
             r.band_colors.first().map(|(_, n)| *n).unwrap_or(0)
@@ -414,9 +414,7 @@ fn main() {
                 let band_txt: Vec<String> = r
                     .band_colors
                     .iter()
-                    .map(|(b, n)| {
-                        format!("{}[{:.2},{:.2}]={n}", b.axis.label(), b.from, b.to)
-                    })
+                    .map(|(b, n)| format!("{}[{:.2},{:.2}]={n}", b.axis.label(), b.from, b.to))
                     .collect();
                 println!(
                     "{}: {}x{} distinct_colors={} bg_ratio={:.4} {}",

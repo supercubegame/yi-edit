@@ -65,7 +65,10 @@ fn the_gui_gets_its_font_through_the_audited_layer() {
 fn coverage_is_decided_by_a_cmap_lookup_and_the_control_experiment_exists() {
     let src = meta::read("crates/session/src/fontpick.rs");
     for needle in ["cmap", "lookup_format4", "lookup_format12", "face_offset"] {
-        assert!(!meta::hits_in_code(&src, needle).is_empty(), "字体层里没有 {needle}");
+        assert!(
+            !meta::hits_in_code(&src, needle).is_empty(),
+            "字体层里没有 {needle}"
+        );
     }
     let tests = meta::read("crates/session/tests/fontpick.rs");
     assert!(

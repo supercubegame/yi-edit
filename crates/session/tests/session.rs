@@ -103,9 +103,17 @@ fn huge_mode_is_really_read_only() {
     assert!(e.doc_mut().is_none(), "大文件模式不应该交出可变文档");
 
     let err = e.save().expect_err("大文件模式不应该能保存");
-    assert_eq!(err.kind(), std::io::ErrorKind::Unsupported, "错误种类不对：{err}");
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::Unsupported,
+        "错误种类不对：{err}"
+    );
     // 磁盘上的字节一个都不能变。
-    assert_eq!(fs::read(&p).unwrap(), text.as_bytes(), "只读模式却改动了文件");
+    assert_eq!(
+        fs::read(&p).unwrap(),
+        text.as_bytes(),
+        "只读模式却改动了文件"
+    );
 }
 
 /// 小文件走内存模式，且真的可编辑可保存。这是上一条的对照侧：
@@ -252,7 +260,11 @@ fn cursor_walks_char_boundaries_not_bytes() {
         );
         assert!(steps <= line0.len(), "next_pos 没在推进，死循环了");
     }
-    assert_eq!(steps, line0.chars().count(), "步数不等于字符数，那就是按字节走的");
+    assert_eq!(
+        steps,
+        line0.chars().count(),
+        "步数不等于字符数，那就是按字节走的"
+    );
 
     // 再走回来，必须逐步回到行首。
     let mut back = 0usize;
@@ -267,11 +279,19 @@ fn cursor_walks_char_boundaries_not_bytes() {
     // 跨行：行首向前要到上一行行尾；文头向前不动。
     let up = e.prev_pos(Pos::new(1, 0));
     assert_eq!(up, Pos::new(0, line0.len()));
-    assert_eq!(e.prev_pos(Pos::new(0, 0)), Pos::new(0, 0), "文头向前应该不动");
+    assert_eq!(
+        e.prev_pos(Pos::new(0, 0)),
+        Pos::new(0, 0),
+        "文头向前应该不动"
+    );
 
     // 文尾向后不动。文本以 \n 结尾，所以最后一行是空行。
     let last = e.line_count() - 1;
-    assert_eq!(e.next_pos(Pos::new(last, 0)), Pos::new(last, 0), "文尾向后应该不动");
+    assert_eq!(
+        e.next_pos(Pos::new(last, 0)),
+        Pos::new(last, 0),
+        "文尾向后应该不动"
+    );
 }
 
 /// 承重：跨行高亮状态。只高亮可见行意味着渲染第 N 行时必须知道第 N-1 行的出口状态。
@@ -303,7 +323,11 @@ fn cross_line_highlight_state_is_carried_and_invalidated() {
     // 注释结束之后的行不应该还在注释里。
     let after = e.line_count() - 2;
     assert!(!e.state_at(after).block_comment, "块注释结束了却没退出");
-    assert_eq!(e.state_at(0), LineState::default(), "第 0 行入口状态应该是默认");
+    assert_eq!(
+        e.state_at(0),
+        LineState::default(),
+        "第 0 行入口状态应该是默认"
+    );
 
     // 失效之后缓存真的要缩，否则编辑之后高亮就是陈的。
     e.invalidate_states(5);
@@ -357,5 +381,8 @@ fn selection_is_ordered_and_empty_selection_is_none() {
 fn opening_a_missing_file_is_an_error_not_an_empty_editor() {
     let t = Tmp::new("missing");
     let p = t.0.join("nope.txt");
-    assert!(Editor::open(&p).is_err(), "打不开的文件应该报错，而不是默默给个空编辑器");
+    assert!(
+        Editor::open(&p).is_err(),
+        "打不开的文件应该报错，而不是默默给个空编辑器"
+    );
 }

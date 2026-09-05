@@ -17,7 +17,10 @@ pub struct PreeditView {
 pub enum AdapterEffect {
     None,
     Commit(String),
-    DeleteSurrounding { before_chars: usize, after_chars: usize },
+    DeleteSurrounding {
+        before_chars: usize,
+        after_chars: usize,
+    },
     ClearPreedit,
 }
 
@@ -38,25 +41,33 @@ impl ImeAdapter {
     pub fn feed(&mut self, event: &egui::ImeEvent) -> AdapterEffect {
         let mapped = match event {
             egui::ImeEvent::Enabled => ImeEvent::Enabled,
-            egui::ImeEvent::Preedit { text, active_range_chars } => ImeEvent::Preedit {
+            egui::ImeEvent::Preedit {
+                text,
+                active_range_chars,
+            } => ImeEvent::Preedit {
                 text: text.clone(),
                 active_range_chars: active_range_chars.clone(),
             },
             egui::ImeEvent::Commit(text) => ImeEvent::Commit(text.clone()),
-            egui::ImeEvent::DeleteSurrounding { before_chars, after_chars } => {
-                ImeEvent::DeleteSurrounding {
-                    before_chars: *before_chars,
-                    after_chars: *after_chars,
-                }
-            }
+            egui::ImeEvent::DeleteSurrounding {
+                before_chars,
+                after_chars,
+            } => ImeEvent::DeleteSurrounding {
+                before_chars: *before_chars,
+                after_chars: *after_chars,
+            },
             egui::ImeEvent::Disabled => ImeEvent::Disabled,
         };
         match self.state.handle(mapped) {
             ImeEffect::None => AdapterEffect::None,
             ImeEffect::Commit(text) => AdapterEffect::Commit(text),
-            ImeEffect::DeleteSurrounding { before_chars, after_chars } => {
-                AdapterEffect::DeleteSurrounding { before_chars, after_chars }
-            }
+            ImeEffect::DeleteSurrounding {
+                before_chars,
+                after_chars,
+            } => AdapterEffect::DeleteSurrounding {
+                before_chars,
+                after_chars,
+            },
             ImeEffect::ClearPreedit => AdapterEffect::ClearPreedit,
         }
     }
@@ -108,7 +119,10 @@ mod tests {
             text: "残留".into(),
             active_range_chars: Some(0..2),
         });
-        assert_eq!(a.feed(&egui::ImeEvent::Disabled), AdapterEffect::ClearPreedit);
+        assert_eq!(
+            a.feed(&egui::ImeEvent::Disabled),
+            AdapterEffect::ClearPreedit
+        );
         assert_eq!(a.preedit().text, "");
         assert_eq!(a.preedit().active_range_chars, None);
     }

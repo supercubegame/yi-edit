@@ -57,7 +57,10 @@ fn the_gate_runs_every_test_binary_even_after_a_failure() {
             "这行 cargo test 没带 --no-fail-fast，第一个红的二进制会把后面全部淹掉：{t}"
         );
     }
-    assert_eq!(checked, 1, "期望恰好一处 cargo test，实际 {checked} 处（新加的那处也要带开关）");
+    assert_eq!(
+        checked, 1,
+        "期望恰好一处 cargo test，实际 {checked} 处（新加的那处也要带开关）"
+    );
 }
 
 /// **失败详情必须在日志末尾。** 实测踩过：回写只带末尾 N 行，而参考项（fmt）

@@ -40,9 +40,15 @@ pub enum ImeEffect {
 }
 
 impl ImeState {
-    pub fn enabled(&self) -> bool { self.enabled }
-    pub fn preedit(&self) -> &str { &self.preedit }
-    pub fn active_range_chars(&self) -> Option<Range<usize>> { self.active_range_chars.clone() }
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+    pub fn preedit(&self) -> &str {
+        &self.preedit
+    }
+    pub fn active_range_chars(&self) -> Option<Range<usize>> {
+        self.active_range_chars.clone()
+    }
 
     pub fn handle(&mut self, event: ImeEvent) -> ImeEffect {
         match event {
@@ -50,7 +56,10 @@ impl ImeState {
                 self.enabled = true;
                 ImeEffect::None
             }
-            ImeEvent::Preedit { text, active_range_chars } => {
+            ImeEvent::Preedit {
+                text,
+                active_range_chars,
+            } => {
                 self.enabled = true;
                 self.preedit = text;
                 self.active_range_chars = active_range_chars;
@@ -59,11 +68,19 @@ impl ImeState {
             ImeEvent::Commit(text) => {
                 self.preedit.clear();
                 self.active_range_chars = None;
-                if text.is_empty() { ImeEffect::None } else { ImeEffect::Commit(text) }
+                if text.is_empty() {
+                    ImeEffect::None
+                } else {
+                    ImeEffect::Commit(text)
+                }
             }
-            ImeEvent::DeleteSurrounding { before_chars, after_chars } => {
-                ImeEffect::DeleteSurrounding { before_chars, after_chars }
-            }
+            ImeEvent::DeleteSurrounding {
+                before_chars,
+                after_chars,
+            } => ImeEffect::DeleteSurrounding {
+                before_chars,
+                after_chars,
+            },
             ImeEvent::Disabled => {
                 self.enabled = false;
                 self.preedit.clear();

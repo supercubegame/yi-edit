@@ -463,7 +463,11 @@ impl YiEdit {
         ui.painter().rect_filled(rect, 0.0, th::CHROME);
         ui.horizontal_centered(|ui| {
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("Yi Edit").font(sans(14.0)).color(th::TEXT));
+            ui.label(
+                egui::RichText::new("Yi Edit")
+                    .font(sans(14.0))
+                    .color(th::TEXT),
+            );
             if ui.button("侧栏").clicked() {
                 self.show_sidebar = !self.show_sidebar;
             }
@@ -512,7 +516,11 @@ impl YiEdit {
         ui.painter().rect_filled(rect, 0.0, th::CHROME);
         ui.horizontal_centered(|ui| {
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("查找").font(sans(11.0)).color(th::TEXT_DIM));
+            ui.label(
+                egui::RichText::new("查找")
+                    .font(sans(11.0))
+                    .color(th::TEXT_DIM),
+            );
             let changed = ui
                 .add_sized([220.0, 22.0], egui::TextEdit::singleline(&mut self.search))
                 .changed();
@@ -525,7 +533,11 @@ impl YiEdit {
             if ui.button("下一个").clicked() {
                 self.goto_hit(true);
             }
-            ui.label(egui::RichText::new("替换为").font(sans(11.0)).color(th::TEXT_DIM));
+            ui.label(
+                egui::RichText::new("替换为")
+                    .font(sans(11.0))
+                    .color(th::TEXT_DIM),
+            );
             ui.add_sized([180.0, 22.0], egui::TextEdit::singleline(&mut self.replace));
             if ui.button("全部替换").clicked() {
                 match self
@@ -553,7 +565,11 @@ impl YiEdit {
                     self.hit_index + 1
                 )
             };
-            ui.label(egui::RichText::new(text).font(sans(11.0)).color(th::TEXT_DIM));
+            ui.label(
+                egui::RichText::new(text)
+                    .font(sans(11.0))
+                    .color(th::TEXT_DIM),
+            );
         });
         ui.painter().hline(
             rect.x_range(),
@@ -571,7 +587,11 @@ impl YiEdit {
             egui::Stroke::new(1.0, th::HAIRLINE),
         );
         ui.add_space(6.0);
-        ui.label(egui::RichText::new("文件").font(sans(11.0)).color(th::TEXT_DIM));
+        ui.label(
+            egui::RichText::new("文件")
+                .font(sans(11.0))
+                .color(th::TEXT_DIM),
+        );
         // 先 clone 快照：循环里要改 self.listing，而边迭代边改是借用冲突。
         let snapshot = self.listing.clone();
         let mut open = None;
@@ -755,13 +775,12 @@ impl YiEdit {
                             mono(),
                             th::ACCENT,
                         );
-                        ui.ctx()
-                            .send_viewport_cmd(egui::ViewportCommand::IMERect(
-                                egui::Rect::from_min_size(
-                                    egui::pos2(cx, rect.min.y),
-                                    egui::vec2(2.0, row_h),
-                                ),
-                            ));
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::IMERect(
+                            egui::Rect::from_min_size(
+                                egui::pos2(cx, rect.min.y),
+                                egui::vec2(2.0, row_h),
+                            ),
+                        ));
                     }
                 }
                 if response.clicked() {

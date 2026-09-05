@@ -84,9 +84,15 @@ fn line_to_band_to_line_round_trips() {
         }
     }
     println!("往返实测：校过 {checked} 次，退化带 {collapsed} 次，被夹像素 {clamped} 次");
-    assert!(checked > 400, "只真正校了 {checked} 次往返（实测基线 491），语料缩水了");
+    assert!(
+        checked > 400,
+        "只真正校了 {checked} 次往返（实测基线 491），语料缩水了"
+    );
     // 夹具自证：「多行挤一像素」那种形状真的被压到了。
-    assert!(collapsed > 100, "只碰到 {collapsed} 个退化带，那一分支在测空气");
+    assert!(
+        collapsed > 100,
+        "只碰到 {collapsed} 个退化带，那一分支在测空气"
+    );
     // 豁免不得漂大：每种形状最多两个像素。
     assert!(
         clamped <= MAX_CLAMP_EXEMPTIONS,
@@ -123,7 +129,11 @@ fn first_and_last_line_are_both_reachable() {
         let m = JumpMap::new(*h, *n).unwrap();
         assert_eq!(m.line_at(0), 0, "h={h} n={n} 顶部没映到第 0 行");
         assert_eq!(m.line_at(h - 1), *n - 1, "h={h} n={n} 底部没映到最后一行");
-        assert_eq!(m.line_at(h * 10), *n - 1, "h={h} n={n} 越界的 y 没夹到最后一行");
+        assert_eq!(
+            m.line_at(h * 10),
+            *n - 1,
+            "h={h} n={n} 越界的 y 没夹到最后一行"
+        );
     }
 }
 
@@ -162,7 +172,10 @@ fn the_edge_clamps_are_no_ops_when_pixels_outnumber_lines() {
             checked += 1;
         }
     }
-    assert!(checked >= 8, "只校了 {checked} 次，语料里 h >= n 的形状太少");
+    assert!(
+        checked >= 8,
+        "只校了 {checked} 次，语料里 h >= n 的形状太少"
+    );
 }
 
 /// line_at 必须单调不减：往下点不能跳到更靠前的行。

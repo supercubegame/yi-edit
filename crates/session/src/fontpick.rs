@@ -62,7 +62,10 @@ pub enum Reject {
     Unreadable(io::ErrorKind),
     TooSmall(usize),
     NotSfnt([u8; 4]),
-    FaceOutOfRange { index: u32, faces: u32 },
+    FaceOutOfRange {
+        index: u32,
+        faces: u32,
+    },
     Truncated(&'static str),
     NoCmap,
     NoUnicodeSubtable,
@@ -155,8 +158,8 @@ fn face_offset(b: &[u8], index: u32) -> Result<usize, Reject> {
     if &tag != TTCF {
         return Ok(0);
     }
-    let off = u32_at(b, 12 + 4 * index as usize).ok_or(Reject::Truncated("ttc offset table"))?
-        as usize;
+    let off =
+        u32_at(b, 12 + 4 * index as usize).ok_or(Reject::Truncated("ttc offset table"))? as usize;
     let inner = tag_at(b, off).ok_or(Reject::Truncated("ttc face header"))?;
     if !is_sfnt(&inner) {
         return Err(Reject::NotSfnt(inner));

@@ -1,0 +1,1687 @@
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/bin/shotcheck.rs:67:
+                 axis.label()
+             ));
+         }
+-        let from: f64 = parts[0].parse().map_err(|_| format!("起边界不是数：{s:?}"))?;
+-        let to: f64 = parts[1].parse().map_err(|_| format!("止边界不是数：{s:?}"))?;
++        let from: f64 = parts[0]
++            .parse()
++            .map_err(|_| format!("起边界不是数：{s:?}"))?;
++        let to: f64 = parts[1]
++            .parse()
++            .map_err(|_| format!("止边界不是数：{s:?}"))?;
+         let min_colors: usize = parts[2]
+             .parse()
+             .map_err(|_| format!("最少颜色数不是数：{s:?}"))?;
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/bin/shotcheck.rs:302:
+         Err(e) => bad.push(format!("底部留白图解不开：{e}")),
+     }
+     match check(&padded, Some((w, h)), &[bottom_band]) {
+-        Ok(r) if r.problems.is_empty() => bad.push(String::from(
+-            "带检查没拓到底部留白，它是装饰",
+-        )),
++        Ok(r) if r.problems.is_empty() => bad.push(String::from("带检查没拓到底部留白，它是装饰")),
+         Ok(r) => println!(
+             "selftest bottom-blank + band: 已正确判红（底带颜色数={}）",
+             r.band_colors.first().map(|(_, n)| *n).unwrap_or(0)
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/bin/shotcheck.rs:335:
+         Err(e) => bad.push(format!("右侧置空图解不开：{e}")),
+     }
+     match check(&blank_right, Some((w, h)), &[right_band]) {
+-        Ok(r) if r.problems.is_empty() => {
+-            bad.push(String::from("竖带没拓到右侧置空，它是装饰"))
+-        }
++        Ok(r) if r.problems.is_empty() => bad.push(String::from("竖带没拓到右侧置空，它是装饰")),
+         Ok(r) => println!(
+             "selftest right-blank + vband: 已正确判红（右带颜色数={}）",
+             r.band_colors.first().map(|(_, n)| *n).unwrap_or(0)
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/bin/shotcheck.rs:414:
+                 let band_txt: Vec<String> = r
+                     .band_colors
+                     .iter()
+-                    .map(|(b, n)| {
+-                        format!("{}[{:.2},{:.2}]={n}", b.axis.label(), b.from, b.to)
+-                    })
++                    .map(|(b, n)| format!("{}[{:.2},{:.2}]={n}", b.axis.label(), b.from, b.to))
+                     .collect();
+                 println!(
+                     "{}: {}x{} distinct_colors={} bg_ratio={:.4} {}",
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ime_adapter.rs:17:
+ pub enum AdapterEffect {
+     None,
+     Commit(String),
+-    DeleteSurrounding { before_chars: usize, after_chars: usize },
++    DeleteSurrounding {
++        before_chars: usize,
++        after_chars: usize,
++    },
+     ClearPreedit,
+ }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ime_adapter.rs:38:
+     pub fn feed(&mut self, event: &egui::ImeEvent) -> AdapterEffect {
+         let mapped = match event {
+             egui::ImeEvent::Enabled => ImeEvent::Enabled,
+-            egui::ImeEvent::Preedit { text, active_range_chars } => ImeEvent::Preedit {
++            egui::ImeEvent::Preedit {
++                text,
++                active_range_chars,
++            } => ImeEvent::Preedit {
+                 text: text.clone(),
+                 active_range_chars: active_range_chars.clone(),
+             },
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ime_adapter.rs:45:
+             egui::ImeEvent::Commit(text) => ImeEvent::Commit(text.clone()),
+-            egui::ImeEvent::DeleteSurrounding { before_chars, after_chars } => {
+-                ImeEvent::DeleteSurrounding {
+-                    before_chars: *before_chars,
+-                    after_chars: *after_chars,
+-                }
+-            }
++            egui::ImeEvent::DeleteSurrounding {
++                before_chars,
++                after_chars,
++            } => ImeEvent::DeleteSurrounding {
++                before_chars: *before_chars,
++                after_chars: *after_chars,
++            },
+             egui::ImeEvent::Disabled => ImeEvent::Disabled,
+         };
+         match self.state.handle(mapped) {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ime_adapter.rs:55:
+             ImeEffect::None => AdapterEffect::None,
+             ImeEffect::Commit(text) => AdapterEffect::Commit(text),
+-            ImeEffect::DeleteSurrounding { before_chars, after_chars } => {
+-                AdapterEffect::DeleteSurrounding { before_chars, after_chars }
+-            }
++            ImeEffect::DeleteSurrounding {
++                before_chars,
++                after_chars,
++            } => AdapterEffect::DeleteSurrounding {
++                before_chars,
++                after_chars,
++            },
+             ImeEffect::ClearPreedit => AdapterEffect::ClearPreedit,
+         }
+     }
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ime_adapter.rs:108:
+             text: "残留".into(),
+             active_range_chars: Some(0..2),
+         });
+-        assert_eq!(a.feed(&egui::ImeEvent::Disabled), AdapterEffect::ClearPreedit);
++        assert_eq!(
++            a.feed(&egui::ImeEvent::Disabled),
++            AdapterEffect::ClearPreedit
++        );
+         assert_eq!(a.preedit().text, "");
+         assert_eq!(a.preedit().active_range_chars, None);
+     }
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ui_safe.rs:463:
+         ui.painter().rect_filled(rect, 0.0, th::CHROME);
+         ui.horizontal_centered(|ui| {
+             ui.add_space(8.0);
+-            ui.label(egui::RichText::new("Yi Edit").font(sans(14.0)).color(th::TEXT));
++            ui.label(
++                egui::RichText::new("Yi Edit")
++                    .font(sans(14.0))
++                    .color(th::TEXT),
++            );
+             if ui.button("侧栏").clicked() {
+                 self.show_sidebar = !self.show_sidebar;
+             }
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ui_safe.rs:512:
+         ui.painter().rect_filled(rect, 0.0, th::CHROME);
+         ui.horizontal_centered(|ui| {
+             ui.add_space(8.0);
+-            ui.label(egui::RichText::new("查找").font(sans(11.0)).color(th::TEXT_DIM));
++            ui.label(
++                egui::RichText::new("查找")
++                    .font(sans(11.0))
++                    .color(th::TEXT_DIM),
++            );
+             let changed = ui
+                 .add_sized([220.0, 22.0], egui::TextEdit::singleline(&mut self.search))
+                 .changed();
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ui_safe.rs:525:
+             if ui.button("下一个").clicked() {
+                 self.goto_hit(true);
+             }
+-            ui.label(egui::RichText::new("替换为").font(sans(11.0)).color(th::TEXT_DIM));
++            ui.label(
++                egui::RichText::new("替换为")
++                    .font(sans(11.0))
++                    .color(th::TEXT_DIM),
++            );
+             ui.add_sized([180.0, 22.0], egui::TextEdit::singleline(&mut self.replace));
+             if ui.button("全部替换").clicked() {
+                 match self
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ui_safe.rs:553:
+                     self.hit_index + 1
+                 )
+             };
+-            ui.label(egui::RichText::new(text).font(sans(11.0)).color(th::TEXT_DIM));
++            ui.label(
++                egui::RichText::new(text)
++                    .font(sans(11.0))
++                    .color(th::TEXT_DIM),
++            );
+         });
+         ui.painter().hline(
+             rect.x_range(),
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ui_safe.rs:571:
+             egui::Stroke::new(1.0, th::HAIRLINE),
+         );
+         ui.add_space(6.0);
+-        ui.label(egui::RichText::new("文件").font(sans(11.0)).color(th::TEXT_DIM));
++        ui.label(
++            egui::RichText::new("文件")
++                .font(sans(11.0))
++                .color(th::TEXT_DIM),
++        );
+         // 先 clone 快照：循环里要改 self.listing，而边迭代边改是借用冲突。
+         let snapshot = self.listing.clone();
+         let mut open = None;
+Diff in /home/runner/work/yi-edit/yi-edit/crates/app/src/ui_safe.rs:755:
+                             mono(),
+                             th::ACCENT,
+                         );
+-                        ui.ctx()
+-                            .send_viewport_cmd(egui::ViewportCommand::IMERect(
+-                                egui::Rect::from_min_size(
+-                                    egui::pos2(cx, rect.min.y),
+-                                    egui::vec2(2.0, row_h),
+-                                ),
+-                            ));
++                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::IMERect(
++                            egui::Rect::from_min_size(
++                                egui::pos2(cx, rect.min.y),
++                                egui::vec2(2.0, row_h),
++                            ),
++                        ));
+                     }
+                 }
+                 if response.clicked() {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/src/highlight.rs:107:
+ }
+ 
+ const RUST_KEYWORDS: &[&str] = &[
+-    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+-    "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
+-    "mut", "pub", "ref", "return", "self", "static", "struct", "super", "trait", "true", "type",
+-    "unsafe", "use", "where", "while",
++    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
++    "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
++    "ref", "return", "self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use",
++    "where", "while",
+ ];
+ const RUST_TYPES: &[&str] = &[
+     "bool", "char", "f32", "f64", "i8", "i16", "i32", "i64", "i128", "isize", "str", "u8", "u16",
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/src/highlight.rs:123:
+     "with", "yield",
+ ];
+ const JS_KEYWORDS: &[&str] = &[
+-    "async", "await", "break", "case", "catch", "class", "const", "continue", "default", "delete",
+-    "do", "else", "export", "extends", "false", "finally", "for", "function", "if", "import",
+-    "in", "instanceof", "let", "new", "null", "of", "return", "super", "switch", "this", "throw",
+-    "true", "try", "typeof", "undefined", "var", "void", "while", "yield",
++    "async",
++    "await",
++    "break",
++    "case",
++    "catch",
++    "class",
++    "const",
++    "continue",
++    "default",
++    "delete",
++    "do",
++    "else",
++    "export",
++    "extends",
++    "false",
++    "finally",
++    "for",
++    "function",
++    "if",
++    "import",
++    "in",
++    "instanceof",
++    "let",
++    "new",
++    "null",
++    "of",
++    "return",
++    "super",
++    "switch",
++    "this",
++    "throw",
++    "true",
++    "try",
++    "typeof",
++    "undefined",
++    "var",
++    "void",
++    "while",
++    "yield",
+ ];
+ const C_KEYWORDS: &[&str] = &[
+     "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else",
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/src/highlight.rs:202:
+             block_string: None,
+             quotes: &[b'"', b'\''],
+             keywords: C_KEYWORDS,
+-            types: &["FILE", "size_t", "ssize_t", "uint8_t", "uint32_t", "uint64_t"],
++            types: &[
++                "FILE", "size_t", "ssize_t", "uint8_t", "uint32_t", "uint64_t",
++            ],
+             numbers: true,
+             markdown_headings: false,
+             quote_needs_char_shape: false,
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/edit.rs:95:
+ fn undo_all_returns_to_the_original_text() {
+     let original = "fn main() {\n    let x = 1;\n}\n中文行\n";
+     let ops = 400usize;
+-    assert!(ops < MAX_UNDO, "操作数必须小于 MAX_UNDO，否则测的是丢弃策略");
++    assert!(
++        ops < MAX_UNDO,
++        "操作数必须小于 MAX_UNDO，否则测的是丢弃策略"
++    );
+ 
+     let mut d = Doc::from_text(original);
+     let mut rng = Lcg(0x5eed_1234);
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/edit.rs:112:
+             d.insert(Pos::new(line, col), s);
+         }
+     }
+-    assert_ne!(d.to_text(), original, "这串操作没改动任何东西，后面那条断言是空的");
++    assert_ne!(
++        d.to_text(),
++        original,
++        "这串操作没改动任何东西，后面那条断言是空的"
++    );
+     assert!(d.undo_depth() <= MAX_UNDO);
+ 
+     while d.can_undo() {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/highlight.rs:65:
+             }
+         }
+     }
+-    assert!(checked >= 300, "只检查了 {checked} 组，语料或语言清单缩水了");
++    assert!(
++        checked >= 300,
++        "只检查了 {checked} 组，语料或语言清单缩水了"
++    );
+ }
+ 
+ #[test]
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/highlight.rs:94:
+ /// 不区分的话，它后面整行都会变成字符串色。
+ #[test]
+ fn rust_lifetime_is_not_a_string() {
+-    let (spans, _) = highlight_line("fn f(s: &'a str) -> u8 { 1 }", Lang::Rust, LineState::default());
++    let (spans, _) = highlight_line(
++        "fn f(s: &'a str) -> u8 { 1 }",
++        Lang::Rust,
++        LineState::default(),
++    );
+     let str_spans: Vec<_> = spans.iter().filter(|s| s.kind == TokenKind::Str).collect();
+-    assert!(str_spans.is_empty(), "生命周期被当成字符串了：{str_spans:?}");
++    assert!(
++        str_spans.is_empty(),
++        "生命周期被当成字符串了：{str_spans:?}"
++    );
+     let (spans2, _) = highlight_line("let c = 'x';", Lang::Rust, LineState::default());
+     assert!(
+         spans2.iter().any(|s| s.kind == TokenKind::Str),
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/lines.rs:35:
+ fn chunked_build_equals_whole_build_for_every_chunk_size() {
+     let whole = LineIndex::build(DATA);
+     // 夹具自证：语料里真的有多行，否则下面的循环测的是空气。
+-    assert!(whole.line_count() >= 5, "语料行数不够：{}", whole.line_count());
++    assert!(
++        whole.line_count() >= 5,
++        "语料行数不够：{}",
++        whole.line_count()
++    );
+     for chunk in 1..=DATA.len() {
+         let mut starts = vec![0usize];
+         let mut base = 0usize;
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/replace_stream.rs:1:
+-use yi_edit_core::{find_all, replace_all, ReplaceError, SearchOptions, StreamReplacer, MAX_PATTERN_LEN};
++use yi_edit_core::{
++    find_all, replace_all, ReplaceError, SearchOptions, StreamReplacer, MAX_PATTERN_LEN,
++};
+ 
+-fn stream(input: &[u8], needle: &[u8], repl: &[u8], opts: SearchOptions, chunk: usize) -> (Vec<u8>, usize) {
++fn stream(
++    input: &[u8],
++    needle: &[u8],
++    repl: &[u8],
++    opts: SearchOptions,
++    chunk: usize,
++) -> (Vec<u8>, usize) {
+     let mut r = StreamReplacer::new(needle, repl, opts).expect("模式合法");
+     let mut out = Vec::new();
+     for part in input.chunks(chunk.max(1)) {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/replace_stream.rs:28:
+         whole_word: true,
+     };
+     vec![
+-        Case { hay: "foo bar foo baz foo", needle: "foo", repl: "XX", opts: exact },
+-        Case { hay: "aaaa", needle: "aa", repl: "b", opts: exact },
+-        Case { hay: "abcabcabc", needle: "cab", repl: "", opts: exact },
+-        Case { hay: "Foo FOO foo", needle: "foo", repl: "bar", opts: ci },
+-        Case { hay: "foo foobar foo_x foo", needle: "foo", repl: "Q", opts: ww },
+-        Case { hay: "中文测试中文", needle: "中文", repl: "英文", opts: exact },
+-        Case { hay: "no hits here", needle: "zzz", repl: "!", opts: exact },
+-        Case { hay: "edge", needle: "edge", repl: "EDGE!", opts: exact },
+-        Case { hay: "a\nb\na\nb", needle: "b\na", repl: "-", opts: exact },
++        Case {
++            hay: "foo bar foo baz foo",
++            needle: "foo",
++            repl: "XX",
++            opts: exact,
++        },
++        Case {
++            hay: "aaaa",
++            needle: "aa",
++            repl: "b",
++            opts: exact,
++        },
++        Case {
++            hay: "abcabcabc",
++            needle: "cab",
++            repl: "",
++            opts: exact,
++        },
++        Case {
++            hay: "Foo FOO foo",
++            needle: "foo",
++            repl: "bar",
++            opts: ci,
++        },
++        Case {
++            hay: "foo foobar foo_x foo",
++            needle: "foo",
++            repl: "Q",
++            opts: ww,
++        },
++        Case {
++            hay: "中文测试中文",
++            needle: "中文",
++            repl: "英文",
++            opts: exact,
++        },
++        Case {
++            hay: "no hits here",
++            needle: "zzz",
++            repl: "!",
++            opts: exact,
++        },
++        Case {
++            hay: "edge",
++            needle: "edge",
++            repl: "EDGE!",
++            opts: exact,
++        },
++        Case {
++            hay: "a\nb\na\nb",
++            needle: "b\na",
++            repl: "-",
++            opts: exact,
++        },
+     ]
+ }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/replace_stream.rs:56:
+             }
+         }
+     }
+-    assert!(straddled >= 5, "只有 {straddled} 个跨块匹配，语料没真正压到边界");
++    assert!(
++        straddled >= 5,
++        "只有 {straddled} 个跨块匹配，语料没真正压到边界"
++    );
+ }
+ 
+ /// 承重断言：流式替换对**任意块大小**的输出，必须逐字节等于整缓冲区替换的输出，
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/search.rs:73:
+         }
+     }
+     // 空断言守卫：如果语料里一个匹配都没有，上面那堆 assert_eq 全是 0 == 0。
+-    assert!(total_hits > 20, "语料总匹配数太少（{total_hits}），这批断言在测空气");
++    assert!(
++        total_hits > 20,
++        "语料总匹配数太少（{total_hits}），这批断言在测空气"
++    );
+ }
+ 
+ #[test]
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/search.rs:99:
+     let hay = "中文abc中文测试中文";
+     for needle in ["中文", "abc", "测试"] {
+         let hits = find_all(hay.as_bytes(), needle.as_bytes(), SearchOptions::exact());
+-        assert!(!hits.is_empty(), "needle={needle} 没找到，这条断言会变成空的");
++        assert!(
++            !hits.is_empty(),
++            "needle={needle} 没找到，这条断言会变成空的"
++        );
+         for p in hits {
+             assert!(hay.is_char_boundary(p), "匹配偏移 {p} 不在字符边界上");
+             assert!(
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/search.rs:123:
+ 
+ #[test]
+ fn empty_needle_finds_nothing_instead_of_looping_forever() {
+-    assert_eq!(find_all(b"abc", b"", SearchOptions::exact()), Vec::<usize>::new());
++    assert_eq!(
++        find_all(b"abc", b"", SearchOptions::exact()),
++        Vec::<usize>::new()
++    );
+     assert_eq!(find_from(b"abc", b"", 0, SearchOptions::exact()), None);
+ }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/undo_group.rs:36:
+ #[test]
+ fn typing_a_word_is_one_undo_step() {
+     let word = "function";
+-    assert!(word.chars().count() > 1, "语料只有一个字符，分组与不分组看不出区别");
++    assert!(
++        word.chars().count() > 1,
++        "语料只有一个字符，分组与不分组看不出区别"
++    );
+ 
+     let mut d = Doc::from_text("");
+     type_text(&mut d, Pos::new(0, 0), word);
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/undo_group.rs:43:
+     assert_eq!(d.to_text(), word);
+-    assert_eq!(d.undo_depth(), 1, "敲 {} 个字符却分成了多组", word.chars().count());
++    assert_eq!(
++        d.undo_depth(),
++        1,
++        "敲 {} 个字符却分成了多组",
++        word.chars().count()
++    );
+ 
+     d.undo();
+     assert_eq!(d.to_text(), "", "一下撤销没把整个词撤掉");
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/undo_group.rs:143:
+     type_text(&mut d, p, "xy");
+     assert_eq!(d.undo_depth(), 2, "粘贴与之后的敲字被合成了一组");
+     d.undo();
+-    assert!(d.to_text().ends_with("第二行"), "撤销只应该退掉后敲的两个字");
++    assert!(
++        d.to_text().ends_with("第二行"),
++        "撤销只应该退掉后敲的两个字"
++    );
+     d.undo();
+     assert_eq!(d.to_text(), "", "一下撤销没把整个粘贴撤掉");
+ }
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/undo_group.rs:156:
+     d.mark_saved();
+     assert!(!d.is_dirty());
+     type_text(&mut d, Pos::new(0, 2), "cd");
+-    assert_eq!(d.undo_depth(), 2, "保存没有封口，保存前后的输入被合成了一组");
++    assert_eq!(
++        d.undo_depth(),
++        2,
++        "保存没有封口，保存前后的输入被合成了一组"
++    );
+     d.undo();
+     assert_eq!(d.to_text(), "ab", "撤销应该回到保存时的状态");
+ }
+Diff in /home/runner/work/yi-edit/yi-edit/crates/core/tests/undo_group.rs:183:
+ /// 上限两侧都断，并且真的敲超过上限时必须真的分成多组。
+ #[test]
+ fn the_group_cap_is_sane_and_really_caps() {
+-    assert!(MAX_GROUP_CHARS >= 16, "上限 {MAX_GROUP_CHARS} 太小，连一个长词都装不下");
++    assert!(
++        MAX_GROUP_CHARS >= 16,
++        "上限 {MAX_GROUP_CHARS} 太小，连一个长词都装不下"
++    );
+     assert!(
+         MAX_GROUP_CHARS <= 1000,
+         "上限 {MAX_GROUP_CHARS} 太大，形同无上限，一下 Ctrl+Z 会撤掉一整段"
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/docs.rs:15:
+ #[test]
+ fn the_instruction_file_stays_within_its_line_budget() {
+     let n = meta::read("AGENTS.md").lines().count();
+-    assert!(n <= 200, "AGENTS.md 已经 {n} 行，上限 200（压措词或拆文件，不要调宽上限）");
++    assert!(
++        n <= 200,
++        "AGENTS.md 已经 {n} 行，上限 200（压措词或拆文件，不要调宽上限）"
++    );
+ }
+ 
+ /// 拆分的四条一起断：指令那份不超限、档案那份存在且不空、档案真的被引用、
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/docs.rs:32:
+         "AGENTS.md 里没指向档案文件，那份文档永远不会被读到"
+     );
+ 
+-    let pit_titles: Vec<String> = meta::md_sections(&pit).into_iter().map(|(t, _)| t).collect();
++    let pit_titles: Vec<String> = meta::md_sections(&pit)
++        .into_iter()
++        .map(|(t, _)| t)
++        .collect();
+     let agents_titles: Vec<String> = meta::md_sections(&agents)
+         .into_iter()
+         .map(|(t, _)| t)
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/fonts.rs:65:
+ fn coverage_is_decided_by_a_cmap_lookup_and_the_control_experiment_exists() {
+     let src = meta::read("crates/session/src/fontpick.rs");
+     for needle in ["cmap", "lookup_format4", "lookup_format12", "face_offset"] {
+-        assert!(!meta::hits_in_code(&src, needle).is_empty(), "字体层里没有 {needle}");
++        assert!(
++            !meta::hits_in_code(&src, needle).is_empty(),
++            "字体层里没有 {needle}"
++        );
+     }
+     let tests = meta::read("crates/session/tests/fontpick.rs");
+     assert!(
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/gate.rs:57:
+             "这行 cargo test 没带 --no-fail-fast，第一个红的二进制会把后面全部淹掉：{t}"
+         );
+     }
+-    assert_eq!(checked, 1, "期望恰好一处 cargo test，实际 {checked} 处（新加的那处也要带开关）");
++    assert_eq!(
++        checked, 1,
++        "期望恰好一处 cargo test，实际 {checked} 处（新加的那处也要带开关）"
++    );
+ }
+ 
+ /// **失败详情必须在日志末尾。** 实测踩过：回写只带末尾 N 行，而参考项（fmt）
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/layering.rs:11:
+ 
+ #[test]
+ fn the_session_layer_moved_out_and_the_old_copy_is_gone() {
+-    assert!(meta::exists(SESSION_LIB), "{SESSION_LIB} 不存在，搬家没搬到位");
++    assert!(
++        meta::exists(SESSION_LIB),
++        "{SESSION_LIB} 不存在，搬家没搬到位"
++    );
+     // 这一条是承重的：只有它能区分「搬完了」与「各留一份」。
+     assert!(
+         !meta::exists(OLD_COPY),
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/layering.rs:29:
+             .lines()
+             .filter(|l| !l.trim_start().starts_with('#'))
+             .any(|l| l.contains(banned));
+-        assert!(!in_deps, "crates/session 依赖了 {banned}，它就进不了快闸门了");
++        assert!(
++            !in_deps,
++            "crates/session 依赖了 {banned}，它就进不了快闸门了"
++        );
+     }
+     let src = meta::read(SESSION_LIB);
+     for banned in ["egui", "eframe"] {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/layering.rs:36:
+         let hits = meta::hits_in_code(&src, banned);
+-        assert!(hits.is_empty(), "{SESSION_LIB} 的可执行代码里出现了 {banned}：{hits:?}");
++        assert!(
++            hits.is_empty(),
++            "{SESSION_LIB} 的可执行代码里出现了 {banned}：{hits:?}"
++        );
+     }
+ }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/layering.rs:47:
+         .lines()
+         .filter(|l| !l.trim_start().starts_with('#'))
+         .any(|l| l.contains("-p yi-edit-session"));
+-    assert!(in_code, "快闸门没有选上 yi-edit-session，那层断言根本不会跑");
++    assert!(
++        in_code,
++        "快闸门没有选上 yi-edit-session，那层断言根本不会跑"
++    );
+ }
+ 
+ /// `Editor::open` 必须用文档里那个阈值常量。
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/obligations.rs:93:
+         return;
+     }
+ 
+-    assert!(listed, "{OB1_ID} 没做完却从清单上消失了，这就是「以后再说」");
++    assert!(
++        listed,
++        "{OB1_ID} 没做完却从清单上消失了，这就是「以后再说」"
++    );
+     let now = now();
+     assert!(
+         now <= OB1_DEADLINE,
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/obligations.rs:175:
+ fn the_records_do_not_describe_limitations_the_code_already_lifted() {
+     let fontpick = meta::read("crates/session/src/fontpick.rs");
+     let accepts_collections = fontpick.contains(".ttc") && fontpick.contains("ttcf");
+-    assert!(accepts_collections, "字体层不再处理字体集合了，这条断言得重写");
++    assert!(
++        accepts_collections,
++        "字体层不再处理字体集合了，这条断言得重写"
++    );
+     let doc = meta::read("docs/OBLIGATIONS.md");
+     let sections = meta::md_sections(&doc);
+     let reasoned = sections
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/portable_shell.rs:151:
+ /// 对「另外还自己写了一遍」毫无意见，而分岜的表现是回写完全正常却被判成没送达。
+ #[test]
+ fn the_pr_number_resolution_has_exactly_one_source_of_truth() {
+-    assert!(meta::exists("scripts/pr-number.sh"), "共享的 PR 解析脚本不存在");
++    assert!(
++        meta::exists("scripts/pr-number.sh"),
++        "共享的 PR 解析脚本不存在"
++    );
+     let shared = meta::read("scripts/pr-number.sh");
+     assert!(
+         shared.contains("pull_request.number") && shared.contains("/pulls"),
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/purity.rs:13:
+     ("SystemTime", "系统时间让结果不可重现"),
+     ("Instant::now", "同上"),
+     ("thread_rng", "未播种的随机让失败无法重现"),
+-    ("eprintln!", "向终端写东西是 I/O，而且会在 GUI 下变成静默的垃圾"),
++    (
++        "eprintln!",
++        "向终端写东西是 I/O，而且会在 GUI 下变成静默的垃圾",
++    ),
+     ("println!", "同上"),
+ ];
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/registry.rs:42:
+         let has_lib = meta::exists(&format!("{m}/src/lib.rs"));
+         let has_main = meta::exists(&format!("{m}/src/main.rs"));
+         assert!(has_lib || has_main, "{m} 既没有 lib.rs 也没有 main.rs");
+-        assert!(meta::exists(&format!("{m}/Cargo.toml")), "{m} 没有 Cargo.toml");
++        assert!(
++            meta::exists(&format!("{m}/Cargo.toml")),
++            "{m} 没有 Cargo.toml"
++        );
+     }
+ }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/ui_layout.rs:134:
+         "两个面板的开关不全"
+     );
+     // 截断必须在界面上有标记：静默截断与「就这么多命中」长得一模一样。
+-    assert!(
+-        src.contains("结果不完整"),
+-        "命中被截断时界面上没有任何标记"
+-    );
++    assert!(src.contains("结果不完整"), "命中被截断时界面上没有任何标记");
+ }
+ 
+ /// 焦点守卫。不问焦点的话，在查找框里敲的每一个字同时会被写进文档，
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/ui_layout.rs:146:
+ fn typing_into_a_text_field_cannot_reach_the_document() {
+     let src = app_ui_source();
+     let code = meta::strip_comments_and_strings(&src);
+-    assert!(
+-        code.contains("m.focused()"),
+-        "事件处理里没问过焦点归谁"
+-    );
+-    for guarded in ["Event::Text(text) if editor_focused", "Event::Paste(text) if editor_focused"] {
+-        assert!(
+-            code.contains(guarded),
+-            "{guarded} 没有被焦点守卫拦着"
+-        );
++    assert!(code.contains("m.focused()"), "事件处理里没问过焦点归谁");
++    for guarded in [
++        "Event::Text(text) if editor_focused",
++        "Event::Paste(text) if editor_focused",
++    ] {
++        assert!(code.contains(guarded), "{guarded} 没有被焦点守卫拦着");
+     }
+ }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/ui_saveas.rs:74:
+     );
+ 
+     // 对照侧：“不保存退出”本来就应该无条件退。两侧一样的话，上面那条只是在匹配一个字符串。
+-    let discard = segment(
+-        &src,
+-        "ui.button(\"不保存退出\")",
+-        "ui.button(\"取消\")",
+-    );
++    let discard = segment(&src, "ui.button(\"不保存退出\")", "ui.button(\"取消\")");
+     assert!(
+         discard.contains("force_close = true") && !discard.contains("save_current()"),
+         "「不保存退出」居然也要先保存，那两个按钮就没区别了：{discard}"
+Diff in /home/runner/work/yi-edit/yi-edit/crates/meta/tests/ui_saveas.rs:113:
+         seg.contains("is_dirty()"),
+         "新建没问过有没有未保存的修改：{seg}"
+     );
+-    assert!(
+-        seg.contains("return"),
+-        "问了却没拦住，那与没问一样：{seg}"
+-    );
++    assert!(seg.contains("return"), "问了却没拦住，那与没问一样：{seg}");
+ }
+ 
+ /// 会话层真的提供了这两个入口，而且另存为真的重算了语言。
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/fontpick.rs:62:
+     Unreadable(io::ErrorKind),
+     TooSmall(usize),
+     NotSfnt([u8; 4]),
+-    FaceOutOfRange { index: u32, faces: u32 },
++    FaceOutOfRange {
++        index: u32,
++        faces: u32,
++    },
+     Truncated(&'static str),
+     NoCmap,
+     NoUnicodeSubtable,
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/fontpick.rs:155:
+     if &tag != TTCF {
+         return Ok(0);
+     }
+-    let off = u32_at(b, 12 + 4 * index as usize).ok_or(Reject::Truncated("ttc offset table"))?
+-        as usize;
++    let off =
++        u32_at(b, 12 + 4 * index as usize).ok_or(Reject::Truncated("ttc offset table"))? as usize;
+     let inner = tag_at(b, off).ok_or(Reject::Truncated("ttc face header"))?;
+     if !is_sfnt(&inner) {
+         return Err(Reject::NotSfnt(inner));
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/ime.rs:40:
+ }
+ 
+ impl ImeState {
+-    pub fn enabled(&self) -> bool { self.enabled }
+-    pub fn preedit(&self) -> &str { &self.preedit }
+-    pub fn active_range_chars(&self) -> Option<Range<usize>> { self.active_range_chars.clone() }
++    pub fn enabled(&self) -> bool {
++        self.enabled
++    }
++    pub fn preedit(&self) -> &str {
++        &self.preedit
++    }
++    pub fn active_range_chars(&self) -> Option<Range<usize>> {
++        self.active_range_chars.clone()
++    }
+ 
+     pub fn handle(&mut self, event: ImeEvent) -> ImeEffect {
+         match event {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/ime.rs:50:
+                 self.enabled = true;
+                 ImeEffect::None
+             }
+-            ImeEvent::Preedit { text, active_range_chars } => {
++            ImeEvent::Preedit {
++                text,
++                active_range_chars,
++            } => {
+                 self.enabled = true;
+                 self.preedit = text;
+                 self.active_range_chars = active_range_chars;
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/ime.rs:59:
+             ImeEvent::Commit(text) => {
+                 self.preedit.clear();
+                 self.active_range_chars = None;
+-                if text.is_empty() { ImeEffect::None } else { ImeEffect::Commit(text) }
++                if text.is_empty() {
++                    ImeEffect::None
++                } else {
++                    ImeEffect::Commit(text)
++                }
+             }
+-            ImeEvent::DeleteSurrounding { before_chars, after_chars } => {
+-                ImeEffect::DeleteSurrounding { before_chars, after_chars }
+-            }
++            ImeEvent::DeleteSurrounding {
++                before_chars,
++                after_chars,
++            } => ImeEffect::DeleteSurrounding {
++                before_chars,
++                after_chars,
++            },
+             ImeEvent::Disabled => {
+                 self.enabled = false;
+                 self.preedit.clear();
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:50:
+                 self.bytes
+             )
+         } else {
+-            format!("已保存 {}（{} 字节，新建）", self.path.display(), self.bytes)
++            format!(
++                "已保存 {}（{} 字节，新建）",
++                self.path.display(),
++                self.bytes
++            )
+         }
+     }
+ }
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:157:
+         })
+     }
+ 
+-    pub fn is_huge(&self) -> bool { matches!(self.source, Source::Huge { .. }) }
++    pub fn is_huge(&self) -> bool {
++        matches!(self.source, Source::Huge { .. })
++    }
+ 
+     pub fn doc(&self) -> Option<&Doc> {
+-        match &self.source { Source::Memory(d) => Some(d), Source::Huge { .. } => None }
++        match &self.source {
++            Source::Memory(d) => Some(d),
++            Source::Huge { .. } => None,
++        }
+     }
+ 
+     pub fn doc_mut(&mut self) -> Option<&mut Doc> {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:167:
+-        match &mut self.source { Source::Memory(d) => Some(d), Source::Huge { .. } => None }
++        match &mut self.source {
++            Source::Memory(d) => Some(d),
++            Source::Huge { .. } => None,
++        }
+     }
+ 
+     pub fn line_count(&self) -> usize {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:171:
+-        match &self.source { Source::Memory(d) => d.line_count(), Source::Huge { index, .. } => index.line_count() }
++        match &self.source {
++            Source::Memory(d) => d.line_count(),
++            Source::Huge { index, .. } => index.line_count(),
++        }
+     }
+ 
+     pub fn byte_len(&self) -> usize {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:175:
+-        match &self.source { Source::Memory(d) => d.to_text().len(), Source::Huge { bytes, .. } => *bytes }
++        match &self.source {
++            Source::Memory(d) => d.to_text().len(),
++            Source::Huge { bytes, .. } => *bytes,
++        }
+     }
+ 
+     pub fn status_bar(&mut self) -> StatusBar {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:179:
+         let cursor = self.cursor;
+         let cursor_line = self.line(cursor.line);
+         let column = status::char_column(&cursor_line, cursor.col);
+-        let selected_chars = self.selection().and_then(|(a, b)| self.doc().map(|d| status::selected_chars(d.lines(), a, b)));
++        let selected_chars = self
++            .selection()
++            .and_then(|(a, b)| self.doc().map(|d| status::selected_chars(d.lines(), a, b)));
+         StatusBar {
+-            name: self.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| String::from("未命名")),
++            name: self
++                .path
++                .as_ref()
++                .and_then(|p| p.file_name())
++                .map(|n| n.to_string_lossy().to_string())
++                .unwrap_or_else(|| String::from("未命名")),
+             line: cursor.line + 1,
+             column,
+             total_lines: self.line_count(),
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:197:
+     pub fn line(&mut self, i: usize) -> String {
+         match &mut self.source {
+             Source::Memory(d) => d.line(i).to_string(),
+-            Source::Huge { path, index, cache_from, cache_lines, .. } => {
++            Source::Huge {
++                path,
++                index,
++                cache_from,
++                cache_lines,
++                ..
++            } => {
+                 if i < *cache_from || i >= *cache_from + cache_lines.len() {
+                     let from = i.saturating_sub(WINDOW_LINES / 4);
+                     let to = (from + WINDOW_LINES).min(index.line_count());
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:204:
+                     let start = index.line_span(from).map(|s| s.start).unwrap_or(0);
+-                    let end = index.line_span(to.saturating_sub(1)).map(|s| s.end).unwrap_or(start);
+-                    let bytes = fio::read_range(path, start as u64, end.saturating_sub(start)).unwrap_or_default();
++                    let end = index
++                        .line_span(to.saturating_sub(1))
++                        .map(|s| s.end)
++                        .unwrap_or(start);
++                    let bytes = fio::read_range(path, start as u64, end.saturating_sub(start))
++                        .unwrap_or_default();
+                     let text = String::from_utf8_lossy(&bytes);
+                     *cache_from = from;
+-                    *cache_lines = text.split('\n').map(|s| s.trim_end_matches('\r').to_string()).collect();
+-                    if cache_lines.last().map(|s| s.is_empty()).unwrap_or(false) { cache_lines.pop(); }
++                    *cache_lines = text
++                        .split('\n')
++                        .map(|s| s.trim_end_matches('\r').to_string())
++                        .collect();
++                    if cache_lines.last().map(|s| s.is_empty()).unwrap_or(false) {
++                        cache_lines.pop();
++                    }
+                 }
+-                cache_lines.get(i - *cache_from).cloned().unwrap_or_default()
++                cache_lines
++                    .get(i - *cache_from)
++                    .cloned()
++                    .unwrap_or_default()
+             }
+         }
+     }
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:216:
+ 
+     pub fn state_at(&mut self, i: usize) -> LineState {
+-        if self.is_huge() { return LineState::default(); }
+-        if self.states.is_empty() { self.states.push(LineState::default()); }
++        if self.is_huge() {
++            return LineState::default();
++        }
++        if self.states.is_empty() {
++            self.states.push(LineState::default());
++        }
+         while self.states.len() <= i {
+             let k = self.states.len() - 1;
+             let text = self.line(k);
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:227:
+         self.states[i]
+     }
+ 
+-    pub fn invalidate_states(&mut self, from_line: usize) { self.states.truncate(from_line.max(1)); }
+-    pub fn cached_state_count(&self) -> usize { self.states.len() }
++    pub fn invalidate_states(&mut self, from_line: usize) {
++        self.states.truncate(from_line.max(1));
++    }
++    pub fn cached_state_count(&self) -> usize {
++        self.states.len()
++    }
+ 
+     pub fn selection(&self) -> Option<(Pos, Pos)> {
+         let a = self.anchor?;
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:235:
+-        if a == self.cursor { return None; }
+-        Some(if a <= self.cursor { (a, self.cursor) } else { (self.cursor, a) })
++        if a == self.cursor {
++            return None;
++        }
++        Some(if a <= self.cursor {
++            (a, self.cursor)
++        } else {
++            (self.cursor, a)
++        })
+     }
+ 
+     pub fn commit_undo_group(&mut self) {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:240:
+-        if let Some(d) = self.doc_mut() { d.commit_undo_group(); }
++        if let Some(d) = self.doc_mut() {
++            d.commit_undo_group();
++        }
+     }
+ 
+-    pub fn can_undo(&self) -> bool { self.doc().map(|d| d.can_undo()).unwrap_or(false) }
+-    pub fn can_redo(&self) -> bool { self.doc().map(|d| d.can_redo()).unwrap_or(false) }
++    pub fn can_undo(&self) -> bool {
++        self.doc().map(|d| d.can_undo()).unwrap_or(false)
++    }
++    pub fn can_redo(&self) -> bool {
++        self.doc().map(|d| d.can_redo()).unwrap_or(false)
++    }
+ 
+     /// 撤销一**组**，并把光标放到被改动的地方。
+     ///
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:269:
+             let l = self.line(a.line);
+             let from = clamp_col(&l, a.col);
+             let to = clamp_col(&l, b.col);
+-            if to <= from { return None; }
++            if to <= from {
++                return None;
++            }
+             return Some(l[from..to].to_string());
+         }
+         let mut out = String::new();
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:276:
+         let first = self.line(a.line);
+         out.push_str(&first[clamp_col(&first, a.col)..]);
+         out.push('\n');
+-        for i in a.line + 1..b.line { out.push_str(&self.line(i)); out.push('\n'); }
++        for i in a.line + 1..b.line {
++            out.push_str(&self.line(i));
++            out.push('\n');
++        }
+         let last = self.line(b.line);
+         out.push_str(&last[..clamp_col(&last, b.col)]);
+         Some(out)
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:284:
+ 
+     pub fn cut_selection(&mut self) -> Option<String> {
+         let (a, b) = self.selection()?;
+-        if self.is_huge() { return None; }
++        if self.is_huge() {
++            return None;
++        }
+         let text = self.doc_mut()?.delete(a, b);
+         self.cursor = a;
+         self.anchor = None;
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:291:
+         self.invalidate_states(a.line);
+-        if text.is_empty() { None } else { Some(text) }
++        if text.is_empty() {
++            None
++        } else {
++            Some(text)
++        }
+     }
+ 
+     pub fn insert_text(&mut self, text: &str) -> bool {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:296:
+-        if self.is_huge() || text.is_empty() { return false; }
++        if self.is_huge() || text.is_empty() {
++            return false;
++        }
+         let sel = self.selection();
+         let at = sel.map(|(a, _)| a).unwrap_or(self.cursor);
+-        let Some(d) = self.doc_mut() else { return false; };
+-        let end = match sel { Some((a, b)) => d.replace_range(a, b, text), None => d.insert(at, text) };
++        let Some(d) = self.doc_mut() else {
++            return false;
++        };
++        let end = match sel {
++            Some((a, b)) => d.replace_range(a, b, text),
++            None => d.insert(at, text),
++        };
+         self.cursor = end;
+         self.anchor = None;
+         self.invalidate_states(at.line);
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:361:
+         }
+     }
+ 
+-    pub fn is_dirty(&self) -> bool { self.doc().map(|d| d.is_dirty()).unwrap_or(false) }
++    pub fn is_dirty(&self) -> bool {
++        self.doc().map(|d| d.is_dirty()).unwrap_or(false)
++    }
+ 
+     pub fn search(&mut self, needle: &str, opts: SearchOptions) -> (Vec<Pos>, bool) {
+-        if needle.is_empty() { return (Vec::new(), false); }
+-        if needle.len() > MAX_PATTERN_LEN { self.status = format!("搜索内容太长：{} 字节，上限 {MAX_PATTERN_LEN}", needle.len()); return (Vec::new(), true); }
++        if needle.is_empty() {
++            return (Vec::new(), false);
++        }
++        if needle.len() > MAX_PATTERN_LEN {
++            self.status = format!(
++                "搜索内容太长：{} 字节，上限 {MAX_PATTERN_LEN}",
++                needle.len()
++            );
++            return (Vec::new(), true);
++        }
+         match &self.source {
+-            Source::Memory(d) => { let hits = d.find_all(needle, opts); let truncated = hits.len() > MAX_HITS; (hits.into_iter().take(MAX_HITS).map(|(a, _)| a).collect(), truncated) }
+-            Source::Huge { path, index, .. } => match fio::find_offsets(path, needle.as_bytes(), opts, MAX_HITS) {
+-                Ok((offsets, truncated)) => { let out = offsets.into_iter().map(|off| { let line = index.line_of_offset(off as usize); let start = index.line_span(line).map(|s| s.start).unwrap_or(0); Pos::new(line, off as usize - start) }).collect(); (out, truncated) }
+-                Err(e) => { self.status = format!("搜索失败：{e}"); (Vec::new(), true) }
+-            },
++            Source::Memory(d) => {
++                let hits = d.find_all(needle, opts);
++                let truncated = hits.len() > MAX_HITS;
++                (
++                    hits.into_iter().take(MAX_HITS).map(|(a, _)| a).collect(),
++                    truncated,
++                )
++            }
++            Source::Huge { path, index, .. } => {
++                match fio::find_offsets(path, needle.as_bytes(), opts, MAX_HITS) {
++                    Ok((offsets, truncated)) => {
++                        let out = offsets
++                            .into_iter()
++                            .map(|off| {
++                                let line = index.line_of_offset(off as usize);
++                                let start = index.line_span(line).map(|s| s.start).unwrap_or(0);
++                                Pos::new(line, off as usize - start)
++                            })
++                            .collect();
++                        (out, truncated)
++                    }
++                    Err(e) => {
++                        self.status = format!("搜索失败：{e}");
++                        (Vec::new(), true)
++                    }
++                }
++            }
+         }
+     }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:378:
+-    pub fn replace_all(&mut self, needle: &str, repl: &str, opts: SearchOptions) -> io::Result<usize> {
+-        if needle.is_empty() { return Ok(0); }
++    pub fn replace_all(
++        &mut self,
++        needle: &str,
++        repl: &str,
++        opts: SearchOptions,
++    ) -> io::Result<usize> {
++        if needle.is_empty() {
++            return Ok(0);
++        }
+         match &mut self.source {
+-            Source::Memory(d) => { let n = d.replace_all(needle, repl, opts); self.states.clear(); Ok(n) }
+-            Source::Huge { path, .. } => { let p = path.clone(); let n = fio::replace_in_place(&p, needle.as_bytes(), repl.as_bytes(), opts)?; let index = fio::index_lines(&p)?; let bytes = fio::info(&p)?.len as usize; self.source = Source::Huge { path: p, index, bytes, cache_from: 0, cache_lines: Vec::new() }; Ok(n) }
++            Source::Memory(d) => {
++                let n = d.replace_all(needle, repl, opts);
++                self.states.clear();
++                Ok(n)
++            }
++            Source::Huge { path, .. } => {
++                let p = path.clone();
++                let n = fio::replace_in_place(&p, needle.as_bytes(), repl.as_bytes(), opts)?;
++                let index = fio::index_lines(&p)?;
++                let bytes = fio::info(&p)?.len as usize;
++                self.source = Source::Huge {
++                    path: p,
++                    index,
++                    bytes,
++                    cache_from: 0,
++                    cache_lines: Vec::new(),
++                };
++                Ok(n)
++            }
+         }
+     }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:386:
+     pub fn clamp(&self, p: Pos) -> Pos {
+-        match &self.source { Source::Memory(d) => d.clamp(p), Source::Huge { index, .. } => Pos::new(p.line.min(index.line_count() - 1), p.col) }
++        match &self.source {
++            Source::Memory(d) => d.clamp(p),
++            Source::Huge { index, .. } => Pos::new(p.line.min(index.line_count() - 1), p.col),
++        }
+     }
+ 
+     pub fn prev_pos(&mut self, p: Pos) -> Pos {
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:391:
+-        if p.col > 0 { let line = self.line(p.line); let mut c = (p.col - 1).min(line.len()); while c > 0 && !line.is_char_boundary(c) { c -= 1; } return Pos::new(p.line, c); }
+-        if p.line == 0 { return p; }
++        if p.col > 0 {
++            let line = self.line(p.line);
++            let mut c = (p.col - 1).min(line.len());
++            while c > 0 && !line.is_char_boundary(c) {
++                c -= 1;
++            }
++            return Pos::new(p.line, c);
++        }
++        if p.line == 0 {
++            return p;
++        }
+         Pos::new(p.line - 1, self.line(p.line - 1).len())
+     }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/src/lib.rs:396:
+     pub fn next_pos(&mut self, p: Pos) -> Pos {
+         let line = self.line(p.line);
+-        if p.col < line.len() { let mut c = p.col + 1; while c < line.len() && !line.is_char_boundary(c) { c += 1; } return Pos::new(p.line, c); }
+-        if p.line + 1 >= self.line_count() { return p; }
++        if p.col < line.len() {
++            let mut c = p.col + 1;
++            while c < line.len() && !line.is_char_boundary(c) {
++                c += 1;
++            }
++            return Pos::new(p.line, c);
++        }
++        if p.line + 1 >= self.line_count() {
++            return p;
++        }
+         Pos::new(p.line + 1, 0)
+     }
+ }
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/browser.rs:72:
+     let sub = t.0.join("sub");
+     fs::create_dir(&sub).unwrap();
+     let l = browser::list_dir(&sub, false).unwrap();
+-    assert_eq!(l.parent.as_deref(), Some(t.0.as_path()), "没报父目录，面板就上不去");
++    assert_eq!(
++        l.parent.as_deref(),
++        Some(t.0.as_path()),
++        "没报父目录，面板就上不去"
++    );
+     assert!(l.entries.is_empty());
+     assert_eq!(l.truncated, 0);
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/browser.rs:95:
+ /// 这一条只声明自己验的是常量与字段，真实截断路径记在 docs/PITFALLS.md 里。
+ #[test]
+ fn the_entry_cap_is_sane_and_truncation_is_reportable() {
+-    assert!(MAX_ENTRIES >= 500, "上限 {MAX_ENTRIES} 太小，普通仓库目录就会被截");
++    assert!(
++        MAX_ENTRIES >= 500,
++        "上限 {MAX_ENTRIES} 太小，普通仓库目录就会被截"
++    );
+     let t = Tmp::new("cap");
+     let l = browser::list_dir(&t.0, false).unwrap();
+     assert_eq!(l.truncated, 0, "空目录却报了截断");
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/ime.rs:5:
+     let mut state = ImeState::default();
+     assert_eq!(state.handle(ImeEvent::Enabled), ImeEffect::None);
+     assert_eq!(
+-        state.handle(ImeEvent::Preedit { text: "ni".into(), active_range_chars: Some(0..2) }),
++        state.handle(ImeEvent::Preedit {
++            text: "ni".into(),
++            active_range_chars: Some(0..2)
++        }),
+         ImeEffect::None
+     );
+     assert_eq!(state.preedit(), "ni");
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/ime.rs:12:
+     assert_eq!(state.active_range_chars(), Some(0..2));
+     assert_eq!(
+-        state.handle(ImeEvent::Preedit { text: "你".into(), active_range_chars: Some(0..1) }),
++        state.handle(ImeEvent::Preedit {
++            text: "你".into(),
++            active_range_chars: Some(0..1)
++        }),
+         ImeEffect::None
+     );
+-    assert_eq!(state.handle(ImeEvent::Commit("你".into())), ImeEffect::Commit("你".into()));
++    assert_eq!(
++        state.handle(ImeEvent::Commit("你".into())),
++        ImeEffect::Commit("你".into())
++    );
+     assert_eq!(state.preedit(), "");
+     assert_eq!(state.active_range_chars(), None);
+ }
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/ime.rs:22:
+ #[test]
+ fn disabled_clears_stale_preedit_and_empty_commit_is_a_noop() {
+     let mut state = ImeState::default();
+-    state.handle(ImeEvent::Preedit { text: "x".into(), active_range_chars: None });
+-    assert_eq!(state.handle(ImeEvent::Commit(String::new())), ImeEffect::None);
+-    state.handle(ImeEvent::Preedit { text: "残留".into(), active_range_chars: Some(0..2) });
++    state.handle(ImeEvent::Preedit {
++        text: "x".into(),
++        active_range_chars: None,
++    });
++    assert_eq!(
++        state.handle(ImeEvent::Commit(String::new())),
++        ImeEffect::None
++    );
++    state.handle(ImeEvent::Preedit {
++        text: "残留".into(),
++        active_range_chars: Some(0..2),
++    });
+     assert_eq!(state.handle(ImeEvent::Disabled), ImeEffect::ClearPreedit);
+     assert!(!state.enabled());
+     assert_eq!(state.preedit(), "");
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/jump.rs:84:
+         }
+     }
+     println!("往返实测：校过 {checked} 次，退化带 {collapsed} 次，被夹像素 {clamped} 次");
+-    assert!(checked > 400, "只真正校了 {checked} 次往返（实测基线 491），语料缩水了");
++    assert!(
++        checked > 400,
++        "只真正校了 {checked} 次往返（实测基线 491），语料缩水了"
++    );
+     // 夹具自证：「多行挤一像素」那种形状真的被压到了。
+-    assert!(collapsed > 100, "只碰到 {collapsed} 个退化带，那一分支在测空气");
++    assert!(
++        collapsed > 100,
++        "只碰到 {collapsed} 个退化带，那一分支在测空气"
++    );
+     // 豁免不得漂大：每种形状最多两个像素。
+     assert!(
+         clamped <= MAX_CLAMP_EXEMPTIONS,
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/jump.rs:123:
+         let m = JumpMap::new(*h, *n).unwrap();
+         assert_eq!(m.line_at(0), 0, "h={h} n={n} 顶部没映到第 0 行");
+         assert_eq!(m.line_at(h - 1), *n - 1, "h={h} n={n} 底部没映到最后一行");
+-        assert_eq!(m.line_at(h * 10), *n - 1, "h={h} n={n} 越界的 y 没夹到最后一行");
++        assert_eq!(
++            m.line_at(h * 10),
++            *n - 1,
++            "h={h} n={n} 越界的 y 没夹到最后一行"
++        );
+     }
+ }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/jump.rs:162:
+             checked += 1;
+         }
+     }
+-    assert!(checked >= 8, "只校了 {checked} 次，语料里 h >= n 的形状太少");
++    assert!(
++        checked >= 8,
++        "只校了 {checked} 次，语料里 h >= n 的形状太少"
++    );
+ }
+ 
+ /// line_at 必须单调不减：往下点不能跳到更靠前的行。
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/saveas.rs:44:
+     let mut e = Editor::empty();
+     assert!(e.path.is_none(), "刚启动的编辑器不应该已经有路径");
+     let err = e.save().expect_err("没路径却保存成功了，内容到哪去了？");
+-    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput, "错误种类不对：{err}");
++    assert_eq!(
++        err.kind(),
++        std::io::ErrorKind::InvalidInput,
++        "错误种类不对：{err}"
++    );
+     assert!(
+         err.to_string().contains("路径"),
+         "错误里没说清该干什么：{err}"
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/saveas.rs:70:
+     assert!(!saved.overwrote, "目标文件不存在，却报了覆盖");
+     assert_eq!(saved.path, fresh);
+     assert_eq!(saved.bytes, fs::metadata(&fresh).unwrap().len() as usize);
+-    assert!(saved.message().contains("新建"), "消息里没说是新建：{}", saved.message());
++    assert!(
++        saved.message().contains("新建"),
++        "消息里没说是新建：{}",
++        saved.message()
++    );
+ 
+     let again = e.save_as(&fresh).expect("再保存一次");
+-    assert!(again.overwrote, "文件已经在了，却没报覆盖（这一侧不能红就等于没有这个字段）");
+-    assert!(again.message().contains("覆盖"), "消息里没说覆盖：{}", again.message());
+-    assert_ne!(saved.message(), again.message(), "两种情形的提示完全一样，那个字段就是装饰");
++    assert!(
++        again.overwrote,
++        "文件已经在了，却没报覆盖（这一侧不能红就等于没有这个字段）"
++    );
++    assert!(
++        again.message().contains("覆盖"),
++        "消息里没说覆盖：{}",
++        again.message()
++    );
++    assert_ne!(
++        saved.message(),
++        again.message(),
++        "两种情形的提示完全一样，那个字段就是装饰"
++    );
+ }
+ 
+ #[test]
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/saveas.rs:91:
+     e.save_as(&dst).expect("另存为");
+     assert_eq!(fs::read_to_string(&dst).unwrap(), "hello, yi\n");
+     assert!(!e.is_dirty(), "另存为之后还挂着未保存标记");
+-    assert_eq!(e.path.as_deref(), Some(dst.as_path()), "后续的 Ctrl+S 会写回旧文件");
++    assert_eq!(
++        e.path.as_deref(),
++        Some(dst.as_path()),
++        "后续的 Ctrl+S 会写回旧文件"
++    );
+     // 原文件不能被动过。
+-    assert_eq!(fs::read_to_string(&src).unwrap(), "hello\n", "另存为却改了原文件");
++    assert_eq!(
++        fs::read_to_string(&src).unwrap(),
++        "hello\n",
++        "另存为却改了原文件"
++    );
+     assert_eq!(e.status_bar().name, "b.txt", "状态栏还写着旧文件名");
+ }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/saveas.rs:114:
+ 
+     let dst = t.path("code.rs");
+     e.save_as(&dst).expect("另存为");
+-    assert_eq!(e.lang, Lang::Rust, "另存成 .rs 之后语言没变，颜色会一直停在 Markdown 上");
++    assert_eq!(
++        e.lang,
++        Lang::Rust,
++        "另存成 .rs 之后语言没变，颜色会一直停在 Markdown 上"
++    );
+     assert!(
+         e.cached_state_count() <= 1,
+         "语言变了却留着 {} 条旧语言的高亮状态",
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/saveas.rs:146:
+     assert!(e.can_undo(), "夹具自证：这时候本来就应该有撤销栈");
+ 
+     e.new_file();
+-    assert!(e.path.is_none(), "新文件却留着旧路径，Ctrl+S 会直接覆盖旧文件");
++    assert!(
++        e.path.is_none(),
++        "新文件却留着旧路径，Ctrl+S 会直接覆盖旧文件"
++    );
+     assert_eq!(e.line_count(), 1, "新文件不是空的");
+     assert_eq!(e.line(0), "");
+     assert!(!e.is_dirty(), "刚新建就挂着未保存标记");
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/saveas.rs:173:
+ 
+     let dst = t.path("copy.txt");
+     let err = e.save_as(&dst).expect_err("只读模式却能另存为");
+-    assert_eq!(err.kind(), std::io::ErrorKind::Unsupported, "错误种类不对：{err}");
++    assert_eq!(
++        err.kind(),
++        std::io::ErrorKind::Unsupported,
++        "错误种类不对：{err}"
++    );
+     assert!(!dst.exists(), "报错了却已经建出了目标文件");
+     assert_eq!(
+         e.path.as_deref(),
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/session.rs:103:
+     assert!(e.doc_mut().is_none(), "大文件模式不应该交出可变文档");
+ 
+     let err = e.save().expect_err("大文件模式不应该能保存");
+-    assert_eq!(err.kind(), std::io::ErrorKind::Unsupported, "错误种类不对：{err}");
++    assert_eq!(
++        err.kind(),
++        std::io::ErrorKind::Unsupported,
++        "错误种类不对：{err}"
++    );
+     // 磁盘上的字节一个都不能变。
+-    assert_eq!(fs::read(&p).unwrap(), text.as_bytes(), "只读模式却改动了文件");
++    assert_eq!(
++        fs::read(&p).unwrap(),
++        text.as_bytes(),
++        "只读模式却改动了文件"
++    );
+ }
+ 
+ /// 小文件走内存模式，且真的可编辑可保存。这是上一条的对照侧：
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/session.rs:252:
+         );
+         assert!(steps <= line0.len(), "next_pos 没在推进，死循环了");
+     }
+-    assert_eq!(steps, line0.chars().count(), "步数不等于字符数，那就是按字节走的");
++    assert_eq!(
++        steps,
++        line0.chars().count(),
++        "步数不等于字符数，那就是按字节走的"
++    );
+ 
+     // 再走回来，必须逐步回到行首。
+     let mut back = 0usize;
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/session.rs:267:
+     // 跨行：行首向前要到上一行行尾；文头向前不动。
+     let up = e.prev_pos(Pos::new(1, 0));
+     assert_eq!(up, Pos::new(0, line0.len()));
+-    assert_eq!(e.prev_pos(Pos::new(0, 0)), Pos::new(0, 0), "文头向前应该不动");
++    assert_eq!(
++        e.prev_pos(Pos::new(0, 0)),
++        Pos::new(0, 0),
++        "文头向前应该不动"
++    );
+ 
+     // 文尾向后不动。文本以 \n 结尾，所以最后一行是空行。
+     let last = e.line_count() - 1;
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/session.rs:274:
+-    assert_eq!(e.next_pos(Pos::new(last, 0)), Pos::new(last, 0), "文尾向后应该不动");
++    assert_eq!(
++        e.next_pos(Pos::new(last, 0)),
++        Pos::new(last, 0),
++        "文尾向后应该不动"
++    );
+ }
+ 
+ /// 承重：跨行高亮状态。只高亮可见行意味着渲染第 N 行时必须知道第 N-1 行的出口状态。
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/session.rs:303:
+     // 注释结束之后的行不应该还在注释里。
+     let after = e.line_count() - 2;
+     assert!(!e.state_at(after).block_comment, "块注释结束了却没退出");
+-    assert_eq!(e.state_at(0), LineState::default(), "第 0 行入口状态应该是默认");
++    assert_eq!(
++        e.state_at(0),
++        LineState::default(),
++        "第 0 行入口状态应该是默认"
++    );
+ 
+     // 失效之后缓存真的要缩，否则编辑之后高亮就是陈的。
+     e.invalidate_states(5);
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/session.rs:357:
+ fn opening_a_missing_file_is_an_error_not_an_empty_editor() {
+     let t = Tmp::new("missing");
+     let p = t.0.join("nope.txt");
+-    assert!(Editor::open(&p).is_err(), "打不开的文件应该报错，而不是默默给个空编辑器");
++    assert!(
++        Editor::open(&p).is_err(),
++        "打不开的文件应该报错，而不是默默给个空编辑器"
++    );
+ }
+ 
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/status.rs:11:
+ #[test]
+ fn column_counts_characters_not_bytes() {
+     let l = "a中文b";
+-    assert!(l.len() > l.chars().count(), "语料全是单字节，这条断言在测空气");
++    assert!(
++        l.len() > l.chars().count(),
++        "语料全是单字节，这条断言在测空气"
++    );
+     assert_eq!(char_column(l, 0), 1, "行首应该是第 1 列");
+     assert_eq!(char_column(l, 1), 2, "a 后面是第 2 列");
+     assert_eq!(char_column(l, 4), 3, "中 后面是第 3 列，不是第 5 列");
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/status.rs:25:
+ #[test]
+ fn selection_char_count_handles_single_and_multi_line() {
+     let ls = lines("a中文b\ncd\nef");
+-    assert_eq!(selected_chars(&ls, Pos::new(0, 0), Pos::new(0, 0)), 0, "空选区应该是 0");
++    assert_eq!(
++        selected_chars(&ls, Pos::new(0, 0), Pos::new(0, 0)),
++        0,
++        "空选区应该是 0"
++    );
+     // 行内：从行首到 中 之后 = 2 个字符（a 与 中）。
+     assert_eq!(selected_chars(&ls, Pos::new(0, 0), Pos::new(0, 4)), 2);
+     // 反向选区结果相同（否则往上拖选会显示 0）。
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/status.rs:57:
+ fn read_only_and_dirty_are_mutually_exclusive_badges() {
+     let ro = bar(true, true, None).badges();
+     assert!(ro.contains(&String::from("只读")), "只读标签没亮：{ro:?}");
+-    assert!(!ro.contains(&String::from("未保存")), "只读模式却亮了未保存：{ro:?}");
++    assert!(
++        !ro.contains(&String::from("未保存")),
++        "只读模式却亮了未保存：{ro:?}"
++    );
+ 
+     let d = bar(false, true, None).badges();
+     assert!(d.contains(&String::from("未保存")), "未保存标签没亮：{d:?}");
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/status.rs:64:
+ 
+     let clean = bar(false, false, None).badges();
+-    assert!(!clean.contains(&String::from("未保存")), "干净时却亮了未保存");
++    assert!(
++        !clean.contains(&String::from("未保存")),
++        "干净时却亮了未保存"
++    );
+     assert!(!clean.contains(&String::from("只读")), "可写时却亮了只读");
+ 
+     // 行尾风格与语言总要有，否则状态栏就只剩一半信息。
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/status.rs:71:
+     assert!(clean.contains(&String::from("RUST")), "{clean:?}");
+ 
+     let sel = bar(false, false, Some(42)).badges();
+-    assert!(sel.iter().any(|s| s.contains("42")), "有选区却没显示字符数：{sel:?}");
++    assert!(
++        sel.iter().any(|s| s.contains("42")),
++        "有选区却没显示字符数：{sel:?}"
++    );
+ }
+ 
+ #[test]
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/status.rs:78:
+ fn crlf_is_shown_as_crlf() {
+     let mut b = bar(false, false, None);
+     b.eol = Eol::Crlf;
+-    assert!(b.badges().contains(&String::from("CRLF")), "{:?}", b.badges());
++    assert!(
++        b.badges().contains(&String::from("CRLF")),
++        "{:?}",
++        b.badges()
++    );
+ }
+ 
+ /// 行号列号从 1 开始（界面上行号从 1 起，内部从 0 起，这一层转换很容易差一）。
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/undo_session.rs:29:
+     ed.cursor = yi_edit_core::Pos::new(0, 0);
+     let back = ed.undo().expect("应该能撤销");
+     assert_eq!(ed.cursor, back);
+-    assert_ne!(ed.cursor, after, "撤销后光标停在了插入末端，那个位置已经不存在了");
++    assert_ne!(
++        ed.cursor, after,
++        "撤销后光标停在了插入末端，那个位置已经不存在了"
++    );
+     assert!(ed.can_redo());
+ 
+     let again = ed.redo().expect("应该能重做");
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/undo_ux.rs:5:
+ use yi_edit_session::Editor;
+ 
+ struct Tmp(PathBuf);
+-impl Tmp { fn new(tag:&str) -> Self { let d=std::env::temp_dir().join(format!("yi-undoux-{}-{tag}",std::process::id())); let _=fs::remove_dir_all(&d); fs::create_dir_all(&d).unwrap(); Self(d) } fn file(&self,name:&str,t:&str)->PathBuf { let p=self.0.join(name); fs::write(&p,t.as_bytes()).unwrap(); p } }
+-impl Drop for Tmp { fn drop(&mut self){let _=fs::remove_dir_all(&self.0);} }
++impl Tmp {
++    fn new(tag: &str) -> Self {
++        let d = std::env::temp_dir().join(format!("yi-undoux-{}-{tag}", std::process::id()));
++        let _ = fs::remove_dir_all(&d);
++        fs::create_dir_all(&d).unwrap();
++        Self(d)
++    }
++    fn file(&self, name: &str, t: &str) -> PathBuf {
++        let p = self.0.join(name);
++        fs::write(&p, t.as_bytes()).unwrap();
++        p
++    }
++}
++impl Drop for Tmp {
++    fn drop(&mut self) {
++        let _ = fs::remove_dir_all(&self.0);
++    }
++}
+ 
+-fn depth(e:&Editor)->usize { e.doc().map(|d|d.undo_depth()).unwrap_or(0) }
+-fn type_text(e:&mut Editor,s:&str){for c in s.chars(){assert!(e.insert_text(&c.to_string()));}}
++fn depth(e: &Editor) -> usize {
++    e.doc().map(|d| d.undo_depth()).unwrap_or(0)
++}
++fn type_text(e: &mut Editor, s: &str) {
++    for c in s.chars() {
++        assert!(e.insert_text(&c.to_string()));
++    }
++}
+ 
+ #[test]
+-fn session_typing_is_one_group_and_commit_splits_it(){
+- let t=Tmp::new("typing"); let p=t.file("typing.txt",""); let mut e=Editor::open(&p).unwrap();
+- type_text(&mut e,"ab"); assert_eq!(depth(&e),1);
+- e.commit_undo_group(); type_text(&mut e,"cd"); assert_eq!(depth(&e),2);
+- e.doc_mut().unwrap().undo(); assert_eq!(e.doc().unwrap().to_text(),"ab");
+- e.doc_mut().unwrap().undo(); assert_eq!(e.doc().unwrap().to_text(),"");
++fn session_typing_is_one_group_and_commit_splits_it() {
++    let t = Tmp::new("typing");
++    let p = t.file("typing.txt", "");
++    let mut e = Editor::open(&p).unwrap();
++    type_text(&mut e, "ab");
++    assert_eq!(depth(&e), 1);
++    e.commit_undo_group();
++    type_text(&mut e, "cd");
++    assert_eq!(depth(&e), 2);
++    e.doc_mut().unwrap().undo();
++    assert_eq!(e.doc().unwrap().to_text(), "ab");
++    e.doc_mut().unwrap().undo();
++    assert_eq!(e.doc().unwrap().to_text(), "");
+ }
+ 
+ #[test]
+Diff in /home/runner/work/yi-edit/yi-edit/crates/session/tests/undo_ux.rs:24:
+-fn session_paste_over_selection_is_one_group(){
+- let t=Tmp::new("paste"); let p=t.file("paste.txt","one two"); let mut e=Editor::open(&p).unwrap();
+- e.anchor=Some(Pos::new(0,4)); e.cursor=Pos::new(0,7);
+- assert!(e.insert_text("TWO")); assert_eq!(depth(&e),1);
+- e.doc_mut().unwrap().undo(); assert_eq!(e.doc().unwrap().to_text(),"one two");
++fn session_paste_over_selection_is_one_group() {
++    let t = Tmp::new("paste");
++    let p = t.file("paste.txt", "one two");
++    let mut e = Editor::open(&p).unwrap();
++    e.anchor = Some(Pos::new(0, 4));
++    e.cursor = Pos::new(0, 7);
++    assert!(e.insert_text("TWO"));
++    assert_eq!(depth(&e), 1);
++    e.doc_mut().unwrap().undo();
++    assert_eq!(e.doc().unwrap().to_text(), "one two");
+ }
+ 

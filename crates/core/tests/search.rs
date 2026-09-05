@@ -73,7 +73,10 @@ fn bmh_agrees_with_a_second_independent_implementation() {
         }
     }
     // 空断言守卫：如果语料里一个匹配都没有，上面那堆 assert_eq 全是 0 == 0。
-    assert!(total_hits > 20, "语料总匹配数太少（{total_hits}），这批断言在测空气");
+    assert!(
+        total_hits > 20,
+        "语料总匹配数太少（{total_hits}），这批断言在测空气"
+    );
 }
 
 #[test]
@@ -99,7 +102,10 @@ fn matches_land_on_char_boundaries() {
     let hay = "中文abc中文测试中文";
     for needle in ["中文", "abc", "测试"] {
         let hits = find_all(hay.as_bytes(), needle.as_bytes(), SearchOptions::exact());
-        assert!(!hits.is_empty(), "needle={needle} 没找到，这条断言会变成空的");
+        assert!(
+            !hits.is_empty(),
+            "needle={needle} 没找到，这条断言会变成空的"
+        );
         for p in hits {
             assert!(hay.is_char_boundary(p), "匹配偏移 {p} 不在字符边界上");
             assert!(
@@ -123,6 +129,9 @@ fn find_from_and_find_before_are_consistent_with_find_all() {
 
 #[test]
 fn empty_needle_finds_nothing_instead_of_looping_forever() {
-    assert_eq!(find_all(b"abc", b"", SearchOptions::exact()), Vec::<usize>::new());
+    assert_eq!(
+        find_all(b"abc", b"", SearchOptions::exact()),
+        Vec::<usize>::new()
+    );
     assert_eq!(find_from(b"abc", b"", 0, SearchOptions::exact()), None);
 }

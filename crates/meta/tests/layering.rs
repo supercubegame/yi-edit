@@ -11,7 +11,10 @@ const OLD_COPY: &str = "crates/app/src/editor.rs";
 
 #[test]
 fn the_session_layer_moved_out_and_the_old_copy_is_gone() {
-    assert!(meta::exists(SESSION_LIB), "{SESSION_LIB} 不存在，搬家没搬到位");
+    assert!(
+        meta::exists(SESSION_LIB),
+        "{SESSION_LIB} 不存在，搬家没搬到位"
+    );
     // 这一条是承重的：只有它能区分「搬完了」与「各留一份」。
     assert!(
         !meta::exists(OLD_COPY),
@@ -29,12 +32,18 @@ fn the_session_layer_does_not_depend_on_any_gui() {
             .lines()
             .filter(|l| !l.trim_start().starts_with('#'))
             .any(|l| l.contains(banned));
-        assert!(!in_deps, "crates/session 依赖了 {banned}，它就进不了快闸门了");
+        assert!(
+            !in_deps,
+            "crates/session 依赖了 {banned}，它就进不了快闸门了"
+        );
     }
     let src = meta::read(SESSION_LIB);
     for banned in ["egui", "eframe"] {
         let hits = meta::hits_in_code(&src, banned);
-        assert!(hits.is_empty(), "{SESSION_LIB} 的可执行代码里出现了 {banned}：{hits:?}");
+        assert!(
+            hits.is_empty(),
+            "{SESSION_LIB} 的可执行代码里出现了 {banned}：{hits:?}"
+        );
     }
 }
 
@@ -47,7 +56,10 @@ fn the_fast_gate_actually_runs_the_session_tests() {
         .lines()
         .filter(|l| !l.trim_start().starts_with('#'))
         .any(|l| l.contains("-p yi-edit-session"));
-    assert!(in_code, "快闸门没有选上 yi-edit-session，那层断言根本不会跑");
+    assert!(
+        in_code,
+        "快闸门没有选上 yi-edit-session，那层断言根本不会跑"
+    );
 }
 
 /// `Editor::open` 必须用文档里那个阈值常量。

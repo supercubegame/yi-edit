@@ -11,7 +11,10 @@ fn lines(text: &str) -> Vec<String> {
 #[test]
 fn column_counts_characters_not_bytes() {
     let l = "a中文b";
-    assert!(l.len() > l.chars().count(), "语料全是单字节，这条断言在测空气");
+    assert!(
+        l.len() > l.chars().count(),
+        "语料全是单字节，这条断言在测空气"
+    );
     assert_eq!(char_column(l, 0), 1, "行首应该是第 1 列");
     assert_eq!(char_column(l, 1), 2, "a 后面是第 2 列");
     assert_eq!(char_column(l, 4), 3, "中 后面是第 3 列，不是第 5 列");
@@ -25,7 +28,11 @@ fn column_counts_characters_not_bytes() {
 #[test]
 fn selection_char_count_handles_single_and_multi_line() {
     let ls = lines("a中文b\ncd\nef");
-    assert_eq!(selected_chars(&ls, Pos::new(0, 0), Pos::new(0, 0)), 0, "空选区应该是 0");
+    assert_eq!(
+        selected_chars(&ls, Pos::new(0, 0), Pos::new(0, 0)),
+        0,
+        "空选区应该是 0"
+    );
     // 行内：从行首到 中 之后 = 2 个字符（a 与 中）。
     assert_eq!(selected_chars(&ls, Pos::new(0, 0), Pos::new(0, 4)), 2);
     // 反向选区结果相同（否则往上拖选会显示 0）。
@@ -57,13 +64,19 @@ fn bar(read_only: bool, dirty: bool, selected: Option<usize>) -> StatusBar {
 fn read_only_and_dirty_are_mutually_exclusive_badges() {
     let ro = bar(true, true, None).badges();
     assert!(ro.contains(&String::from("只读")), "只读标签没亮：{ro:?}");
-    assert!(!ro.contains(&String::from("未保存")), "只读模式却亮了未保存：{ro:?}");
+    assert!(
+        !ro.contains(&String::from("未保存")),
+        "只读模式却亮了未保存：{ro:?}"
+    );
 
     let d = bar(false, true, None).badges();
     assert!(d.contains(&String::from("未保存")), "未保存标签没亮：{d:?}");
 
     let clean = bar(false, false, None).badges();
-    assert!(!clean.contains(&String::from("未保存")), "干净时却亮了未保存");
+    assert!(
+        !clean.contains(&String::from("未保存")),
+        "干净时却亮了未保存"
+    );
     assert!(!clean.contains(&String::from("只读")), "可写时却亮了只读");
 
     // 行尾风格与语言总要有，否则状态栏就只剩一半信息。
@@ -71,14 +84,21 @@ fn read_only_and_dirty_are_mutually_exclusive_badges() {
     assert!(clean.contains(&String::from("RUST")), "{clean:?}");
 
     let sel = bar(false, false, Some(42)).badges();
-    assert!(sel.iter().any(|s| s.contains("42")), "有选区却没显示字符数：{sel:?}");
+    assert!(
+        sel.iter().any(|s| s.contains("42")),
+        "有选区却没显示字符数：{sel:?}"
+    );
 }
 
 #[test]
 fn crlf_is_shown_as_crlf() {
     let mut b = bar(false, false, None);
     b.eol = Eol::Crlf;
-    assert!(b.badges().contains(&String::from("CRLF")), "{:?}", b.badges());
+    assert!(
+        b.badges().contains(&String::from("CRLF")),
+        "{:?}",
+        b.badges()
+    );
 }
 
 /// 行号列号从 1 开始（界面上行号从 1 起，内部从 0 起，这一层转换很容易差一）。

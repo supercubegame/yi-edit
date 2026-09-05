@@ -29,7 +29,10 @@ fn undo_moves_the_cursor_to_where_the_change_was() {
     ed.cursor = yi_edit_core::Pos::new(0, 0);
     let back = ed.undo().expect("应该能撤销");
     assert_eq!(ed.cursor, back);
-    assert_ne!(ed.cursor, after, "撤销后光标停在了插入末端，那个位置已经不存在了");
+    assert_ne!(
+        ed.cursor, after,
+        "撤销后光标停在了插入末端，那个位置已经不存在了"
+    );
     assert!(ed.can_redo());
 
     let again = ed.redo().expect("应该能重做");

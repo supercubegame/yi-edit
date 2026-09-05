@@ -35,7 +35,11 @@ fn trim_eol_strips_lf_and_crlf() {
 fn chunked_build_equals_whole_build_for_every_chunk_size() {
     let whole = LineIndex::build(DATA);
     // 夹具自证：语料里真的有多行，否则下面的循环测的是空气。
-    assert!(whole.line_count() >= 5, "语料行数不够：{}", whole.line_count());
+    assert!(
+        whole.line_count() >= 5,
+        "语料行数不够：{}",
+        whole.line_count()
+    );
     for chunk in 1..=DATA.len() {
         let mut starts = vec![0usize];
         let mut base = 0usize;

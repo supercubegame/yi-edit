@@ -44,7 +44,11 @@ fn saving_without_a_path_is_an_error_that_says_why() {
     let mut e = Editor::empty();
     assert!(e.path.is_none(), "刚启动的编辑器不应该已经有路径");
     let err = e.save().expect_err("没路径却保存成功了，内容到哪去了？");
-    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput, "错误种类不对：{err}");
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::InvalidInput,
+        "错误种类不对：{err}"
+    );
     assert!(
         err.to_string().contains("路径"),
         "错误里没说清该干什么：{err}"
@@ -70,12 +74,27 @@ fn save_as_reports_new_versus_overwrite() {
     assert!(!saved.overwrote, "目标文件不存在，却报了覆盖");
     assert_eq!(saved.path, fresh);
     assert_eq!(saved.bytes, fs::metadata(&fresh).unwrap().len() as usize);
-    assert!(saved.message().contains("新建"), "消息里没说是新建：{}", saved.message());
+    assert!(
+        saved.message().contains("新建"),
+        "消息里没说是新建：{}",
+        saved.message()
+    );
 
     let again = e.save_as(&fresh).expect("再保存一次");
-    assert!(again.overwrote, "文件已经在了，却没报覆盖（这一侧不能红就等于没有这个字段）");
-    assert!(again.message().contains("覆盖"), "消息里没说覆盖：{}", again.message());
-    assert_ne!(saved.message(), again.message(), "两种情形的提示完全一样，那个字段就是装饰");
+    assert!(
+        again.overwrote,
+        "文件已经在了，却没报覆盖（这一侧不能红就等于没有这个字段）"
+    );
+    assert!(
+        again.message().contains("覆盖"),
+        "消息里没说覆盖：{}",
+        again.message()
+    );
+    assert_ne!(
+        saved.message(),
+        again.message(),
+        "两种情形的提示完全一样，那个字段就是装饰"
+    );
 }
 
 #[test]
@@ -91,9 +110,17 @@ fn save_as_writes_the_real_bytes_and_clears_the_dirty_flag() {
     e.save_as(&dst).expect("另存为");
     assert_eq!(fs::read_to_string(&dst).unwrap(), "hello, yi\n");
     assert!(!e.is_dirty(), "另存为之后还挂着未保存标记");
-    assert_eq!(e.path.as_deref(), Some(dst.as_path()), "后续的 Ctrl+S 会写回旧文件");
+    assert_eq!(
+        e.path.as_deref(),
+        Some(dst.as_path()),
+        "后续的 Ctrl+S 会写回旧文件"
+    );
     // 原文件不能被动过。
-    assert_eq!(fs::read_to_string(&src).unwrap(), "hello\n", "另存为却改了原文件");
+    assert_eq!(
+        fs::read_to_string(&src).unwrap(),
+        "hello\n",
+        "另存为却改了原文件"
+    );
     assert_eq!(e.status_bar().name, "b.txt", "状态栏还写着旧文件名");
 }
 
@@ -114,7 +141,11 @@ fn save_as_redetects_the_language_and_drops_the_stale_highlight_cache() {
 
     let dst = t.path("code.rs");
     e.save_as(&dst).expect("另存为");
-    assert_eq!(e.lang, Lang::Rust, "另存成 .rs 之后语言没变，颜色会一直停在 Markdown 上");
+    assert_eq!(
+        e.lang,
+        Lang::Rust,
+        "另存成 .rs 之后语言没变，颜色会一直停在 Markdown 上"
+    );
     assert!(
         e.cached_state_count() <= 1,
         "语言变了却留着 {} 条旧语言的高亮状态",
@@ -146,7 +177,10 @@ fn new_file_does_not_carry_the_previous_document_or_its_undo_stack() {
     assert!(e.can_undo(), "夹具自证：这时候本来就应该有撤销栈");
 
     e.new_file();
-    assert!(e.path.is_none(), "新文件却留着旧路径，Ctrl+S 会直接覆盖旧文件");
+    assert!(
+        e.path.is_none(),
+        "新文件却留着旧路径，Ctrl+S 会直接覆盖旧文件"
+    );
     assert_eq!(e.line_count(), 1, "新文件不是空的");
     assert_eq!(e.line(0), "");
     assert!(!e.is_dirty(), "刚新建就挂着未保存标记");
@@ -173,7 +207,11 @@ fn save_as_on_a_read_only_huge_file_refuses_and_writes_nothing() {
 
     let dst = t.path("copy.txt");
     let err = e.save_as(&dst).expect_err("只读模式却能另存为");
-    assert_eq!(err.kind(), std::io::ErrorKind::Unsupported, "错误种类不对：{err}");
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::Unsupported,
+        "错误种类不对：{err}"
+    );
     assert!(!dst.exists(), "报错了却已经建出了目标文件");
     assert_eq!(
         e.path.as_deref(),
