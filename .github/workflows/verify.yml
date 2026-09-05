@@ -98,6 +98,8 @@ jobs:
         shell: bash
         run: cargo build --release --workspace > build.log 2>&1
       - name: Upload executables
+        id: upload_bin
+        continue-on-error: true
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -108,10 +110,14 @@ jobs:
           if-no-files-found: warn
 
       - name: Screenshot checker selftest
+        id: selftest
+        continue-on-error: true
         if: matrix.probe && steps.build.outcome == 'success'
         run: ./target/release/yi-shotcheck --selftest
 
       - name: Fixtures
+        id: fixtures
+        continue-on-error: true
         if: matrix.probe && steps.build.outcome == 'success'
         run: |
           mkdir -p shots
@@ -142,6 +148,8 @@ jobs:
           EOF
           ls -l sample.rs big.rs
       - name: Screenshot small file
+        id: shot_small
+        continue-on-error: true
         if: matrix.probe && steps.build.outcome == 'success'
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
@@ -152,6 +160,8 @@ jobs:
           xvfb-run -a --server-args="-screen 0 1280x800x24" \
             ./target/release/yi-edit sample.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
       - name: Screenshot huge file
+        id: shot_huge
+        continue-on-error: true
         if: matrix.probe && steps.build.outcome == 'success'
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
@@ -161,13 +171,14 @@ jobs:
         run: |
           xvfb-run -a --server-args="-screen 0 1280x800x24" \
             ./target/release/yi-edit big.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
+      # 尺寸断言现在真的在守：1280x800 是实测值，不是拍的。
       - name: Check screenshots
         id: shots
         continue-on-error: true
         if: matrix.probe && steps.build.outcome == 'success'
         run: |
           ls -l shots || true
-          ./target/release/yi-shotcheck shots/small.png shots/huge.png > shotcheck.txt 2>&1
+          ./target/release/yi-shotcheck --size 1280x800 shots/small.png shots/huge.png > shotcheck.txt 2>&1
           cat shotcheck.txt
       - name: Benchmark
         id: bench
@@ -177,6 +188,8 @@ jobs:
           YI_EDIT_BENCH_MB: "64"
         run: ./target/release/yi-edit-bench > bench-run.txt 2>&1
       - name: Upload heavy evidence
+        id: upload_evidence
+        continue-on-error: true
         if: always() && matrix.probe
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -189,6 +202,39 @@ jobs:
             app-run.txt
             build.log
           if-no-files-found: warn
+
+      # 判定前置到回写之前，并把自己的结果也写进文件：否则「哪一步红了」只存在于
+      # 我读不到的 CI 日志里，而那时候手里只剩一个比特。
+      - name: Evaluate steps
+        id: verdict
+        continue-on-error: true
+        shell: bash
+        run: |
+          {
+            echo "os=${{ matrix.os }} probe=${{ matrix.probe }}"
+            echo "build=${{ steps.build.outcome }}"
+            echo "upload_bin=${{ steps.upload_bin.outcome }}"
+            echo "selftest=${{ steps.selftest.outcome }}"
+            echo "fixtures=${{ steps.fixtures.outcome }}"
+            echo "shot_small=${{ steps.shot_small.outcome }}"
+            echo "shot_huge=${{ steps.shot_huge.outcome }}"
+            echo "shots=${{ steps.shots.outcome }}"
+            echo "bench=${{ steps.bench.outcome }}"
+            echo "upload_evidence=${{ steps.upload_evidence.outcome }}"
+            echo "--- target/release ---"
+            ls -l target/release 2>/dev/null | head -n 20 || echo "target/release 不存在"
+          } > outcomes.txt
+          cat outcomes.txt
+          fail=0
+          note() { echo "VERDICT FAIL: $1" | tee -a outcomes.txt; fail=1; }
+          [ "${{ steps.build.outcome }}" = success ] || note "构建没成功"
+          if [ "${{ matrix.probe }}" = "true" ]; then
+            [ "${{ steps.selftest.outcome }}" = success ] || note "截图检查器自测没过"
+            [ "${{ steps.fixtures.outcome }}" = success ] || note "夹具生成没成功"
+            [ "${{ steps.shots.outcome }}" = success ] || note "截图检查没过"
+            [ "${{ steps.bench.outcome }}" = success ] || note "基准没过"
+          fi
+          exit "$fail"
       # 每个平台一个 marker：三个平台共用一个的话，后面的会把前面的盖掉，
       # 而覆盖的表现是「那条日志本来就不存在」。
       - name: Post raw slow-gate log
@@ -196,17 +242,11 @@ jobs:
         shell: bash
         run: |
           bash scripts/raw-log.sh "慢闸门原始输出 ${{ matrix.os }}" ${{ matrix.marker_line }} \
-            build.log app-run.txt shotcheck.txt bench-run.txt
-      - name: Fail if any probe step failed
+            outcomes.txt build.log app-run.txt shotcheck.txt bench-run.txt
+      - name: Fail if the evaluation failed
         if: always()
         shell: bash
-        run: |
-          echo "build=${{ steps.build.outcome }} shots=${{ steps.shots.outcome }} bench=${{ steps.bench.outcome }}"
-          test "${{ steps.build.outcome }}" = success
-          if [ "${{ matrix.probe }}" = "true" ]; then
-            test "${{ steps.shots.outcome }}" = success
-            test "${{ steps.bench.outcome }}" = success
-          fi
+        run: test "${{ steps.verdict.outcome }}" = success
 
   report:
     name: 回写报告
