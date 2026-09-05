@@ -92,10 +92,15 @@ pub fn install_style(ctx: &egui::Context) {
     visuals.selection.stroke = egui::Stroke::new(1.0, th::TEXT);
     ctx.set_visuals(visuals);
 
-    let mut style = (*ctx.style()).clone();
-    style.spacing.button_padding = egui::vec2(10.0, 4.0);
-    style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-    ctx.set_style(style);
+    // egui 0.36 把 style 改成了按主题作用域：`style()` / `set_style()` 没了，
+    // 换成 `style_of(theme)` / `set_style_of(theme, ..)`。两个主题都设，
+    // 否则跟随系统主题时间距会突然变回默认值。
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        let mut style = (*ctx.style_of(theme)).clone();
+        style.spacing.button_padding = egui::vec2(10.0, 4.0);
+        style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+        ctx.set_style_of(theme, style);
+    }
 }
 
 pub struct YiEdit {
@@ -465,11 +470,9 @@ impl YiEdit {
 
     /// macOS 风格的小圆角按钮。
     fn tool_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> bool {
-        let text = egui::RichText::new(label).font(sans(13.0)).color(if enabled {
-            th::TEXT
-        } else {
-            th::TEXT_DIM
-        });
+        let text = egui::RichText::new(label)
+            .font(sans(13.0))
+            .color(if enabled { th::TEXT } else { th::TEXT_DIM });
         let btn = egui::Button::new(text)
             .corner_radius(th::RADIUS)
             .fill(th::CONTROL);
@@ -478,13 +481,9 @@ impl YiEdit {
 
     fn toggle_button(ui: &mut egui::Ui, label: &str, on: &mut bool) {
         let fill = if *on { th::ACCENT } else { th::CONTROL };
-        let btn = egui::Button::new(
-            egui::RichText::new(label)
-                .font(sans(13.0))
-                .color(th::TEXT),
-        )
-        .corner_radius(th::RADIUS)
-        .fill(fill);
+        let btn = egui::Button::new(egui::RichText::new(label).font(sans(13.0)).color(th::TEXT))
+            .corner_radius(th::RADIUS)
+            .fill(fill);
         if ui.add(btn).clicked() {
             *on = !*on;
         }
@@ -533,16 +532,8 @@ impl YiEdit {
                 .and_then(|p| p.file_name())
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| String::from("未命名"));
-            let title = if dirty {
-                format!("{name}  ●")
-            } else {
-                name
-            };
-            ui.label(
-                egui::RichText::new(title)
-                    .font(sans(13.0))
-                    .color(th::TEXT),
-            );
+            let title = if dirty { format!("{name}  ●") } else { name };
+            ui.label(egui::RichText::new(title).font(sans(13.0)).color(th::TEXT));
             if read_only {
                 ui.label(
                     egui::RichText::new("只读")
@@ -613,10 +604,16 @@ impl YiEdit {
             }
 
             let a = ui
-                .checkbox(&mut self.case_sensitive,  egui::RichText::new("Aa").font(sans(12.0)))
+                .checkbox(
+                    &mut self.case_sensitive,
+                    egui::RichText::new("Aa").font(sans(12.0)),
+                )
                 .changed();
             let b = ui
-                .checkbox(&mut self.whole_word, egui::RichText::new("全词").font(sans(12.0)))
+                .checkbox(
+                    &mut self.whole_word,
+                    egui::RichText::new("全词").font(sans(12.0)),
+                )
                 .changed();
             if a || b {
                 self.do_search();
@@ -809,10 +806,7 @@ impl YiEdit {
             let y0 = rect.min.y + top as f32;
             let y1 = rect.min.y + (bottom.max(top + 1)) as f32;
             painter.rect_filled(
-                egui::Rect::from_min_max(
-                    egui::pos2(rect.min.x, y0),
-                    egui::pos2(rect.max.x, y1),
-                ),
+                egui::Rect::from_min_max(egui::pos2(rect.min.x, y0), egui::pos2(rect.max.x, y1)),
                 0.0,
                 th::ACCENT,
             );
@@ -884,11 +878,7 @@ impl YiEdit {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(10.0);
                 for b in bar.badges().into_iter().rev() {
-                    ui.label(
-                        egui::RichText::new(b)
-                            .font(sans(11.0))
-                            .color(th::TEXT_DIM),
-                    );
+                    ui.label(egui::RichText::new(b).font(sans(11.0)).color(th::TEXT_DIM));
                 }
             });
         });
@@ -1100,8 +1090,10 @@ impl eframe::App for YiEdit {
         Self::region(ui, status, |ui| self.status_bar(ui));
 
         // ---- 中间三列 ----
-        let body =
-            egui::Rect::from_min_max(egui::pos2(full.min.x, top), egui::pos2(full.max.x, status.min.y));
+        let body = egui::Rect::from_min_max(
+            egui::pos2(full.min.x, top),
+            egui::pos2(full.max.x, status.min.y),
+        );
         let mut left = body.min.x;
         let mut right = body.max.x;
 
@@ -1134,7 +1126,10 @@ impl eframe::App for YiEdit {
             right = jump.min.x - 1.0;
         }
 
-        let center = egui::Rect::from_min_max(egui::pos2(left, body.min.y), egui::pos2(right, body.max.y));
+        let center = egui::Rect::from_min_max(
+            egui::pos2(left, body.min.y),
+            egui::pos2(right, body.max.y),
+        );
         Self::region(ui, center, |ui| self.editor_area(ui));
     }
 }
