@@ -17,7 +17,10 @@ fn markers() -> Vec<String> {
 #[test]
 fn the_fast_gate_does_not_build_the_gui() {
     let sh = meta::read("scripts/verify.sh");
-    assert!(sh.contains("-p yi-edit-core"), "快闸门没有按 crate 选择测试目标");
+    assert!(
+        sh.contains("-p yi-edit-core"),
+        "快闸门没有按 crate 选择测试目标"
+    );
     let joined: String = sh
         .lines()
         .filter(|l| !l.trim_start().starts_with('#'))
@@ -33,17 +36,63 @@ fn the_fast_gate_does_not_build_the_gui() {
     );
 }
 
+/// **失败详情必须在日志末尾。** 实测踩过：回写只带末尾 N 行，而参考项（fmt）
+/// 的输出接在测试输出后面且足够长，把四个失败的测试名全部挤出了窗口。
+/// 那条评论告诉我「失败 1 项」而定位不到根因，等于没有报告。
+/// 这里两条：参考项不得写进闸门日志（负向）；失败摘要节必须存在。
+#[test]
+fn the_failure_detail_lands_at_the_end_of_the_gate_log() {
+    let sh = meta::read("scripts/verify.sh");
+    let code: Vec<&str> = sh
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect();
+    let joined = code.join("\n");
+
+    assert!(
+        joined.contains("FAILURE SUMMARY"),
+        "没有失败摘要节，失败详情会被前面的输出挤出回写窗口"
+    );
+    assert!(
+        joined.contains("gate-failed-steps.txt"),
+        "摘要节没有登记失败步骤，它只能输出一句空话"
+    );
+
+    // 负向那条是承重的：参考项的原始输出一旦重定向进闸门日志，同一个坑就回来了。
+    for line in &code {
+        let t = line.trim();
+        if t.starts_with("cargo fmt") {
+            assert!(
+                !t.contains("${LOG}") && !t.contains("$LOG") && !t.contains("gate.log"),
+                "fmt 的原始输出又往闸门日志里堆了：{t}"
+            );
+        }
+    }
+}
+
 /// 每一种报告占一个 marker，且真身只在 marker.txt 里。
 /// 负向那条（脚本里不得出现字面量）是承重的：拄两份的失败方式是
 /// 「去重失效 / attest 找不到」，两种都很难从面板上看出来。
 #[test]
 fn every_marker_has_exactly_one_source_of_truth() {
     let ms = markers();
-    assert!(ms.len() >= 5, "marker 只登记了 {} 个，不够每种报告一个", ms.len());
+    assert!(
+        ms.len() >= 5,
+        "marker 只登记了 {} 个，不够每种报告一个",
+        ms.len()
+    );
     let uniq: HashSet<&String> = ms.iter().collect();
-    assert_eq!(uniq.len(), ms.len(), "marker 有重复，它们会互相覆盖：{ms:?}");
+    assert_eq!(
+        uniq.len(),
+        ms.len(),
+        "marker 有重复，它们会互相覆盖：{ms:?}"
+    );
 
-    let scripts = ["scripts/report.sh", "scripts/attest.sh", "scripts/raw-log.sh"];
+    let scripts = [
+        "scripts/report.sh",
+        "scripts/attest.sh",
+        "scripts/raw-log.sh",
+    ];
     for s in scripts {
         let src = meta::read(s);
         for m in &ms {
@@ -106,13 +155,18 @@ fn every_action_is_pinned_to_an_immutable_sha() {
 fn the_fallback_report_is_posted_before_the_rich_one() {
     let wf = meta::read(".github/workflows/verify.yml");
     let min = wf.find("gate-report-min.md").expect("没有兑底报告调用");
-    let rich = wf.find("report.sh gate-report.md").expect("没有富文本报告调用");
+    let rich = wf
+        .find("report.sh gate-report.md")
+        .expect("没有富文本报告调用");
     assert!(min < rich, "富文本报告写在了兑底报告前面");
-    assert!(wf.contains("scripts/attest.sh"), "没有送达核对，回写坏掉不会有人知道");
+    assert!(
+        wf.contains("scripts/attest.sh"),
+        "没有送达核对，回写坏掉不会有人知道"
+    );
 }
 
 /// 每一条流水线、每一个平台，红了都要能把原始输出送到我读得到的地方。
-/// 上一轮就是在这里掉的：产物管道静默挂掉，手里只剩一个比特。
+/// 实测踩过：产物管道静默挂掉，手里只剩一个比特。
 #[test]
 fn every_platform_can_post_its_raw_log() {
     let wf = meta::read(".github/workflows/verify.yml");

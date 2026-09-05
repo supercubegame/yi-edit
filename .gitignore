@@ -5,6 +5,16 @@
 gate.log
 gate-result.txt
 gate-metrics.txt
+gate-step-*.log
+gate-failed-steps.txt
+fmt.log
+raw-log.md
+raw-log-run.txt
 report-attempts.txt
 bench-result.txt
+bench-run.txt
+app-run.txt
+build.log
+outcomes.txt
+shotcheck.txt
 /shots
