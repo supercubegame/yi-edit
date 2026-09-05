@@ -1,6 +1,6 @@
 name: verify
 
-# 一个提交只跑一条 run。push 与 PR 同时触发的话，两条 run 会抢同一条带 marker
+# 一个提交只跑一条 run。push 与 PR 同时触发的话，两条 run 会报同一条带 marker
 # 的评论，而送达核对要求评论里带着自己那次的 run id（幂等写入必须铉本次运行，
 # 否则「存在一条带 marker 的评论」就是经典假绿）—— 于是先完成的那条会自己判红。
 # 顺便两条回写通道都会真的跑一遍：特性分支走 PR 评论，main 走提交评论。
@@ -183,14 +183,18 @@ jobs:
         run: |
           xvfb-run -a --server-args="-screen 0 1280x800x24" \
             ./target/release/yi-edit big.rs >> app-run.txt 2>&1 || echo "APP EXIT $?" >> app-run.txt
-      # 尺寸断言现在真的在守：1280x800 是实测值，不是拍的。
+      # 尺寸断言真的在守（1280x800 是实测值）。三条带对应三个区域：
+      # 底部（留白 bug）、顶部（工具栏）、中部（正文）。
+      # 颜色数下限 8 是**拍的**，只用来抓「这一条带是纯色的」，下一轮拿实测值收紧。
       - name: Check screenshots
         id: shots
         continue-on-error: true
         if: matrix.probe && steps.build.outcome == 'success'
         run: |
           ls -l shots || true
-          ./target/release/yi-shotcheck --size 1280x800 shots/small.png shots/huge.png > shotcheck.txt 2>&1
+          ./target/release/yi-shotcheck --size 1280x800 \
+            --band 0.90:1.00:8 --band 0.00:0.06:8 --band 0.40:0.60:8 \
+            shots/small.png shots/huge.png > shotcheck.txt 2>&1
           cat shotcheck.txt
       - name: Benchmark
         id: bench
