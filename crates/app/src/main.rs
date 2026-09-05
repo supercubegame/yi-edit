@@ -6,7 +6,6 @@
 mod ime_adapter;
 mod shot;
 mod theme;
-#[path = "ui_runtime.rs"]
 mod ui;
 
 use std::path::PathBuf;
