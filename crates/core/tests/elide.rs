@@ -24,7 +24,11 @@ fn the_column_budget_is_never_exceeded() {
     for s in samples {
         for budget in 0..48usize {
             for out in [elide_start(s, budget), elide_path(s, budget)] {
-                assert!(columns(&out) <= budget, "预算 {budget} 列却输出了 {} 列：{out:?}", columns(&out));
+                assert!(
+                    columns(&out) <= budget,
+                    "预算 {budget} 列却输出了 {} 列：{out:?}",
+                    columns(&out)
+                );
                 checked += 1;
             }
         }
@@ -67,7 +71,14 @@ fn the_file_name_is_kept_whole_whenever_it_fits() {
 #[test]
 fn a_char_count_budget_really_would_have_overflowed() {
     let budget = 12usize;
-    let by_chars: String = CJK_PATH.chars().rev().take(budget).collect::<Vec<_>>().into_iter().rev().collect();
+    let by_chars: String = CJK_PATH
+        .chars()
+        .rev()
+        .take(budget)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     assert_eq!(by_chars.chars().count(), budget);
     assert!(columns(&by_chars) > budget);
     assert!(columns(&elide_path(CJK_PATH, budget)) <= budget);
