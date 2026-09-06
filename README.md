@@ -1,22 +1,47 @@
 # Yi Edit
 
-极简跨平台 Rust 代码编辑器，目标是：代码高亮、任意大文件读写保存、快速搜索替换。
+极简跳平台 Rust 代码编辑器：代码高亮、任意大文件读写保存、快速搜索替换。
 
-当前分支是 V1.0 bootstrap：纯核心已经落地，GUI / 大文件 I/O / 基准截图正在接入。先搭闸门，再接外壳，避免“写完才发现没验过”。
+## 现在真的能用的
+
+- 四个区域：顶部工具栏 / 可开关查找栏 / 左侧文件面板 + 编辑区 + 右侧快速跳转 / 底部状态栏。
+- 新建 / 打开 / 保存 / 另存为（写临时文件再 rename，不会把原文件写成半截）。
+- 光标与选区、方向键 / Home / End / PageUp / PageDown、复制剪切粘贴。
+- 按输入组的撤销重做（不是每个字符一步）。
+- 自动缩进与括号匹配（字符串与注释里的括号不参与计数）。
+- 搜索与全部替换；命中达到上限时界面上会写「结果不完整」，不静默截断。
+- 超过 64 MB 的文件以**只读**模式打开：只建行索引、按需读可见行，
+  搜索与替换在磁盘上流式完成。不假装可编辑：假装的代价是用户信任之后才发现改不了。
+- 中日韩字体按 cmap 覆盖挑（包括 `.ttc` 集合里选对那一张脸），不是“文件存在就用”。
 
 ## 本地命令
 
 ```bash
+./scripts/verify.sh          # 快闸门：不编 GUI，几十秒出结果
 cargo test --workspace
-cargo fmt --all -- --check
+cargo fmt --all -- --check   # 已经是阻断项
 ```
+
+没有本地 Rust 工具链也行：`.github/workflows/format.yml` 会在 CI 里跑格式化并回推，
+详见 docs/FORMATTING.md。
 
 ## 设计取舍
 
-- `crates/core` 零依赖、纯函数优先，负责搜索、流式替换、行索引、增量高亮、文档编辑和撤销。
-- 大文件路径会使用分块读取和原子保存，不把整个文件复制进编辑缓冲区。
-- V1 的截图和基准只记录真实测量值，第一轮不拍性能阈值。
+- `crates/core` 零依赖、纯函数：搜索、流式替换、行索引、增量高亮、文档编辑与撤销、
+  自动缩进与括号匹配。纯的好处不只是好看：它让这些逻辑能进不编 GUI 的快闸门。
+- `crates/session` 无 GUI 会话层；`crates/app` 只是一个外壳。
+  卡在 GUI 里的逻辑快闸门碰不到，而碰不到就等于没有断言。
+- 阈值只拓「彻底卡死 / 白屏 / 死循环」，不当性能基准；所有实测值写在 docs/PITFALLS.md。
 
-## Status
+## 机器验不到的部分
 
-V1.0 is under active construction. The first CI run is the source of truth for compilation and test compatibility.
+截图与基准只在 Linux 上跑。macOS / Windows 上只能证明「能解析到一份覆盖中日韩字的字体」，
+**证不了屏幕上真的不是豆腐块**；输入法的真实行为、滚动手感、风格像不像原生，
+同样只能人工验收。这几条在 docs/PITFALLS.md 的「测不出来」一节里列着。
+
+## 文档
+
+- `AGENTS.md` / `CLAUDE.md`：工作规矩与耦合参数（两份逐字节相同，有断言守）。
+- `docs/PITFALLS.md`：已知限制、踩过的坑、测不出来的事、阈值实测值。
+- `docs/OBLIGATIONS.md`：带期限的欠账（到期判红）。
+- `docs/FORMATTING.md` / `docs/RELEASING.md`：格式化与发布怎么跑。
