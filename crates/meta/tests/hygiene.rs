@@ -89,7 +89,10 @@ fn the_ignore_matcher_only_meets_shapes_it_understands() {
         "星号在中间的模式没匹配上"
     );
     assert!(is_ignored("shots", &sample));
-    assert!(!is_ignored("Cargo.toml", &sample), "匹配器把正常文件也忽略了");
+    assert!(
+        !is_ignored("Cargo.toml", &sample),
+        "匹配器把正常文件也忽略了"
+    );
     assert!(!is_ignored("fmt-run.txt", &sample), "匹配器太宽松");
     assert!(
         !is_ignored("gate-step-", &sample),
