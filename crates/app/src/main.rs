@@ -4,6 +4,7 @@
 
 mod ime_adapter;
 mod shot;
+mod tabs_ui;
 mod theme;
 #[path = "ui_safe.rs"]
 mod ui;
@@ -25,7 +26,7 @@ fn main() -> eframe::Result<()> {
         Box::new(move |cc| {
             ui::install_fonts(&cc.egui_ctx);
             ui::install_style(&cc.egui_ctx);
-            Ok(Box::new(ui::YiEdit::new(arg)))
+            Ok(Box::new(tabs_ui::TabsUi::new(arg)))
         }),
     )
 }
