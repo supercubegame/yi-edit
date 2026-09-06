@@ -13,7 +13,7 @@ members = [
 # 版本号只有这一份真身。改它并合进主干 = 发一个新版：
 # .github/workflows/release.yml 拿 `v<这个版本>` 当 tag，tag 已存在就跳过。
 # 流水线里不得再抄一份版本号，crates/meta/tests/release.rs 有负向断言守着。
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/supercubegame/yi-edit"
