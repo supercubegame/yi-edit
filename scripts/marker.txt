@@ -4,3 +4,4 @@
 <!-- yi-edit-raw-macos -->
 <!-- yi-edit-raw-windows -->
 <!-- yi-edit-raw-format -->
+<!-- yi-edit-raw-release -->
