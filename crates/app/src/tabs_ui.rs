@@ -1,6 +1,8 @@
-//! 顶层 tab 栏。每个 tab 拥有一份完整的 YiEdit 会话，切换时不复制文本，
-//! 关闭脏 tab 时不静默丢内容。下一步可把这层的 tab 状态进一步下沉到 session::Workspace；
-//! 现在先让用户真的能用多个缓冲区，而不是只画一排假 tab。
+//! 顶层 tab 栏。每个 tab 拥有一份完整的 YiEdit 会话，切换时不复制文本。
+//!
+//! 关闭按钮暂不画：YiEdit 的 dirty 状态还需要下沉到 session::Workspace，
+//! 现在画关闭按钮会诱导静默丢内容。先把安全的切换与新建接上，
+//! 下一轮再接三选一脏关闭对话框。
 
 use std::path::PathBuf;
 
@@ -19,10 +21,7 @@ impl TabsUi {
         }
     }
 
-    fn tab_title(tab: &YiEdit, index: usize) -> String {
-        // YiEdit owns the real editor state; the title is deliberately derived
-        // through its public status text until the session Workspace becomes the
-        // single owner in the next extraction.
+    fn tab_title(index: usize) -> String {
         format!("Tab {}", index + 1)
     }
 
@@ -30,25 +29,14 @@ impl TabsUi {
         ui.horizontal(|ui| {
             ui.add_space(6.0);
             for i in 0..self.tabs.len() {
-                let title = Self::tab_title(&self.tabs[i], i);
                 let selected = i == self.active;
                 let label = if selected {
-                    egui::RichText::new(title).strong()
+                    egui::RichText::new(Self::tab_title(i)).strong()
                 } else {
-                    egui::RichText::new(title)
+                    egui::RichText::new(Self::tab_title(i))
                 };
                 if ui.add(egui::Button::new(label).frame(selected)).clicked() {
                     self.active = i;
-                }
-                if ui.small_button("×").clicked() {
-                    // The existing YiEdit close guard owns dirty-document protection.
-                    // Do not silently remove a tab here; leave the tab in place until
-                    // the session-level close decision is wired into this shell.
-                    if self.tabs.len() > 1 {
-                        self.tabs.remove(i);
-                        self.active = self.active.min(self.tabs.len() - 1);
-                    }
-                    break;
                 }
             }
             if ui.button("+").clicked() {
