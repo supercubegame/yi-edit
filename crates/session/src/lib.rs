@@ -14,6 +14,7 @@ pub mod fontpick;
 pub mod ime;
 pub mod jump;
 pub mod status;
+pub mod workspace;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -30,9 +31,6 @@ pub const MAX_HITS: usize = 5000;
 pub const WINDOW_LINES: usize = 400;
 
 /// 一次保存的结果。
-///
-/// `overwrote` 存在的理由：另存为时静默盖掉别人的文件，与新建一个文件
-/// 在界面上长得一模一样，而前者会让人丢数据。上层必须能区分它们。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Saved {
     pub path: PathBuf,
@@ -41,7 +39,6 @@ pub struct Saved {
 }
 
 impl Saved {
-    /// 状态栏用的一句话。覆盖必须说出来。
     pub fn message(&self) -> String {
         if self.overwrote {
             format!(
@@ -101,10 +98,6 @@ impl Editor {
         }
     }
 
-    /// 新建一个空文档。
-    ///
-    /// 为什么不只把文本清空：那会把上一份文档的撤销栈留下来，于是一下 Ctrl+Z
-    /// 能把新文档“撤”回上一个文件的内容。那不会报错，只会让人以为自己敲错了。
     pub fn new_file(&mut self) {
         self.path = None;
         self.source = Source::Memory(Doc::new());
@@ -306,10 +299,6 @@ impl Editor {
         self.doc().map(|d| d.can_redo()).unwrap_or(false)
     }
 
-    /// 撤销一**组**，并把光标放到被改动的地方。
-    ///
-    /// 为什么不让 UI 直接调 `doc_mut().undo()`：那样光标与高亮缓存的失效就散在 GUI 里，
-    /// 而快闸门碰不到 GUI。忘了失效的后果不是报错，是撤销之后高亮颜色停在旧状态上。
     pub fn undo(&mut self) -> Option<Pos> {
         let pos = self.doc_mut()?.undo()?;
         self.cursor = pos;
@@ -392,7 +381,6 @@ impl Editor {
         self.cursor = Pos::new(last, len);
     }
 
-    /// 保存到当前路径。没路径时报错而不是静默丢掉内容。
     pub fn save(&mut self) -> io::Result<Saved> {
         let Some(path) = self.path.clone() else {
             return Err(io::Error::new(
@@ -403,9 +391,6 @@ impl Editor {
         self.write_to(&path)
     }
 
-    /// 另存为。除了写盘，它还必须重新认一次语言并丢掉高亮缓存：
-    /// 把一份文本另存成 `.rs` 之后它应该按 Rust 上色。不重算的话不会报错，
-    /// 只是颜色一直停在旧语言上，而用户会以为高亮坐坏了。
     pub fn save_as(&mut self, path: &Path) -> io::Result<Saved> {
         if path.as_os_str().is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "路径是空的"));
