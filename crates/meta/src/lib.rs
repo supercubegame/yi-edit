@@ -7,7 +7,11 @@
 //! - **写扫描器，不写正则。** 正则的失败方式是「匹配到零个」，而那不是覆盖不足，
 //!   是让整类输入凭空消失。
 //! - **「某段里有没有 X」必须先把那段切出来再找。** 注释里的字面量会同时造成
-//!   漏报和误报，而且两个方向都踩过。
+//!   漏报和误报，而且两个方向都踩过。**第五次踩到的是 shell 脚本：**
+//!   义务的完成判据拿字串在 verify.sh 里找，而我在注释里解释了一句那个判据是什么，
+//!   于是一条根本没做完的义务被认定为已完成 —— 而那会逐人把它从清单上删掉。
+//!   **第七次是工作流文件，方向反了一次：** 我在注释里写下「第一版用了 git add -A」，
+//!   而那条负向断言正在找它，于是一条**已经修好**的规矩被判成还坏着。
 
 use std::path::{Path, PathBuf};
 
@@ -140,6 +144,58 @@ pub fn strip_comments_and_strings(src: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).to_string()
+}
+
+/// 把 shell 脚本里的注释去掉，只留可执行代码。
+///
+/// **它不懂引号。** 一个落在引号里的 `#` 也会被当成注释起点，于是后面的代码会被剥掉。
+/// 方向是安全的一侧（宁可漏看不可误认）：对「完成判据」这类扫描来说，
+/// 把真代码剥掉会让义务看起来「没做完」（最多多挂一轮），
+/// 而把注释当成代码会让一条根本没做完的义务被删掉。后者不可接受。
+pub fn strip_shell_comments(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for line in src.lines() {
+        let bytes = line.as_bytes();
+        let mut cut = line.len();
+        for (i, c) in line.char_indices() {
+            if c != '#' {
+                continue;
+            }
+            let prev_is_space = i == 0 || bytes[i - 1].is_ascii_whitespace();
+            if prev_is_space {
+                cut = i;
+                break;
+            }
+        }
+        out.push_str(&line[..cut]);
+        out.push('\n');
+    }
+    out
+}
+
+/// shell 脚本的可执行代码里包不包含某个子串。
+pub fn shell_code_contains(src: &str, needle: &str) -> bool {
+    strip_shell_comments(src).contains(needle)
+}
+
+/// 把 YAML 里的**整行注释**去掉，只留可执行部分。
+///
+/// 只剥整行注释（`#` 前面只有空白），不剥行尾注释：YAML 的值里 `#` 很常见
+/// （比如 `uses: foo@<sha> # v1`），而误剥会把那一行的 SHA 检查废掉。
+pub fn strip_yaml_comments(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for line in src.lines() {
+        if !line.trim_start().starts_with('#') {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// YAML 的非注释部分里包不包含某个子串。
+pub fn yaml_code_contains(src: &str, needle: &str) -> bool {
+    strip_yaml_comments(src).contains(needle)
 }
 
 /// 可执行代码里命中某个子串的行（带行号）。

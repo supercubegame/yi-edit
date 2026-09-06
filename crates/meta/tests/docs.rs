@@ -15,7 +15,10 @@ fn agents_and_claude_are_byte_identical() {
 #[test]
 fn the_instruction_file_stays_within_its_line_budget() {
     let n = meta::read("AGENTS.md").lines().count();
-    assert!(n <= 200, "AGENTS.md 已经 {n} 行，上限 200（压措词或拆文件，不要调宽上限）");
+    assert!(
+        n <= 200,
+        "AGENTS.md 已经 {n} 行，上限 200（压措词或拆文件，不要调宽上限）"
+    );
 }
 
 /// 拆分的四条一起断：指令那份不超限、档案那份存在且不空、档案真的被引用、
@@ -32,7 +35,10 @@ fn the_archive_was_moved_out_not_copied() {
         "AGENTS.md 里没指向档案文件，那份文档永远不会被读到"
     );
 
-    let pit_titles: Vec<String> = meta::md_sections(&pit).into_iter().map(|(t, _)| t).collect();
+    let pit_titles: Vec<String> = meta::md_sections(&pit)
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect();
     let agents_titles: Vec<String> = meta::md_sections(&agents)
         .into_iter()
         .map(|(t, _)| t)

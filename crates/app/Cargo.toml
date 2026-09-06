@@ -1,6 +1,6 @@
 [package]
 name = "yi-edit"
-description = "Yi Edit —— 极简跨平台代码编辑器"
+description = "Yi Edit —— 极简跳平台代码编辑器"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -20,3 +20,8 @@ path = "src/main.rs"
 [[bin]]
 name = "yi-shotcheck"
 path = "src/bin/shotcheck.rs"
+
+# 不开窗口的字体探测：截图只在 Linux 上拍，而豆腐块只在其他平台上发生。
+[[bin]]
+name = "yi-fontprobe"
+path = "src/bin/fontprobe.rs"

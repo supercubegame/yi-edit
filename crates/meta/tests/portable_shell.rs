@@ -151,7 +151,10 @@ fn cross_platform_scripts_never_put_a_variable_before_a_multibyte_char() {
 /// 对「另外还自己写了一遍」毫无意见，而分岜的表现是回写完全正常却被判成没送达。
 #[test]
 fn the_pr_number_resolution_has_exactly_one_source_of_truth() {
-    assert!(meta::exists("scripts/pr-number.sh"), "共享的 PR 解析脚本不存在");
+    assert!(
+        meta::exists("scripts/pr-number.sh"),
+        "共享的 PR 解析脚本不存在"
+    );
     let shared = meta::read("scripts/pr-number.sh");
     assert!(
         shared.contains("pull_request.number") && shared.contains("/pulls"),

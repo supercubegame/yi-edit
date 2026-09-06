@@ -9,27 +9,70 @@
 //! 而快闸门故意不编 GUI，于是这堆承重逻辑一条断言都没有。搬出来之后它进了快闸门。
 #![forbid(unsafe_code)]
 
+pub mod browser;
+pub mod fontpick;
+pub mod ime;
+pub mod jump;
+pub mod status;
+
 use std::io;
 use std::path::{Path, PathBuf};
 
 use yi_edit_core::{
-    highlight_line, lang_from_path, Doc, Lang, LineIndex, LineState, Pos, SearchOptions,
+    highlight_line, lang_from_path, Doc, Eol, Lang, LineIndex, LineState, Pos, SearchOptions,
     HUGE_FILE_THRESHOLD, MAX_PATTERN_LEN,
 };
 use yi_edit_fileio as fio;
 
-/// 搜索结果上限。到顶之后必须报 truncated，不能静默截断。
-pub const MAX_HITS: usize = 5000;
+pub use status::StatusBar;
 
-/// 大文件模式下一次缓存多少行。
+pub const MAX_HITS: usize = 5000;
 pub const WINDOW_LINES: usize = 400;
+
+/// 一次保存的结果。
+///
+/// `overwrote` 存在的理由：另存为时静默盖掉别人的文件，与新建一个文件
+/// 在界面上长得一模一样，而前者会让人丢数据。上层必须能区分它们。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Saved {
+    pub path: PathBuf,
+    pub bytes: usize,
+    pub overwrote: bool,
+}
+
+impl Saved {
+    /// 状态栏用的一句话。覆盖必须说出来。
+    pub fn message(&self) -> String {
+        if self.overwrote {
+            format!(
+                "已保存 {}（{} 字节，覆盖了已有文件）",
+                self.path.display(),
+                self.bytes
+            )
+        } else {
+            format!(
+                "已保存 {}（{} 字节，新建）",
+                self.path.display(),
+                self.bytes
+            )
+        }
+    }
+}
+
+fn clamp_col(line: &str, col: usize) -> usize {
+    let mut c = col.min(line.len());
+    while c > 0 && !line.is_char_boundary(c) {
+        c -= 1;
+    }
+    c
+}
 
 pub enum Source {
     Memory(Doc),
     Huge {
         path: PathBuf,
         index: LineIndex,
-        /// 缓存的可见窗口，避免每帧都去碰磁盘。
+        bytes: usize,
         cache_from: usize,
         cache_lines: Vec<String>,
     },
@@ -42,9 +85,6 @@ pub struct Editor {
     pub cursor: Pos,
     pub anchor: Option<Pos>,
     pub status: String,
-    /// 高亮的跨行状态索引：states[i] 是第 i 行的**入口**状态。
-    /// 只高亮可见行的代价就是得自己管这个；不管的话，从中间开始看的文件
-    /// 会把块注释内的代码染成普通色。
     states: Vec<LineState>,
 }
 
@@ -61,14 +101,24 @@ impl Editor {
         }
     }
 
-    /// 打开一个文件。大于阈值走只读模式。
+    /// 新建一个空文档。
+    ///
+    /// 为什么不只把文本清空：那会把上一份文档的撤销栈留下来，于是一下 Ctrl+Z
+    /// 能把新文档“撤”回上一个文件的内容。那不会报错，只会让人以为自己敲错了。
+    pub fn new_file(&mut self) {
+        self.path = None;
+        self.source = Source::Memory(Doc::new());
+        self.lang = Lang::PlainText;
+        self.cursor = Pos::default();
+        self.anchor = None;
+        self.states.clear();
+        self.status = String::from("新文件（还没有路径，保存时在上方输入）");
+    }
+
     pub fn open(path: &Path) -> io::Result<Self> {
         Self::open_with_threshold(path, HUGE_FILE_THRESHOLD)
     }
 
-    /// 只为了可测：不能为了验一条只读路径就真写 64MB。
-    /// `open` 仍用文档里那个常量，而且 crates/meta 里有一条断言钉着这一点 ——
-    /// 否则这个参数就成了一个悤悤改掉真实阈值的后门。
     pub fn open_with_threshold(path: &Path, huge_threshold: u64) -> io::Result<Self> {
         let meta = fio::info(path)?;
         let lang = lang_from_path(&path.to_string_lossy());
@@ -79,6 +129,7 @@ impl Editor {
                 source: Source::Huge {
                     path: path.to_path_buf(),
                     index,
+                    bytes: meta.len as usize,
                     cache_from: 0,
                     cache_lines: Vec::new(),
                 },
@@ -135,7 +186,39 @@ impl Editor {
         }
     }
 
-    /// 拉一行文本。大文件模式下可能要碰磁盘，所以需要 &mut self。
+    pub fn byte_len(&self) -> usize {
+        match &self.source {
+            Source::Memory(d) => d.to_text().len(),
+            Source::Huge { bytes, .. } => *bytes,
+        }
+    }
+
+    pub fn status_bar(&mut self) -> StatusBar {
+        let cursor = self.cursor;
+        let cursor_line = self.line(cursor.line);
+        let column = status::char_column(&cursor_line, cursor.col);
+        let selected_chars = self
+            .selection()
+            .and_then(|(a, b)| self.doc().map(|d| status::selected_chars(d.lines(), a, b)));
+        StatusBar {
+            name: self
+                .path
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| String::from("未命名")),
+            line: cursor.line + 1,
+            column,
+            total_lines: self.line_count(),
+            total_bytes: self.byte_len(),
+            selected_chars,
+            eol: self.doc().map(|d| d.eol()).unwrap_or(Eol::Lf),
+            lang: self.lang,
+            read_only: self.is_huge(),
+            dirty: self.doc().map(|d| d.is_dirty()).unwrap_or(false),
+        }
+    }
+
     pub fn line(&mut self, i: usize) -> String {
         match &mut self.source {
             Source::Memory(d) => d.line(i).to_string(),
@@ -144,6 +227,7 @@ impl Editor {
                 index,
                 cache_from,
                 cache_lines,
+                ..
             } => {
                 if i < *cache_from || i >= *cache_from + cache_lines.len() {
                     let from = i.saturating_sub(WINDOW_LINES / 4);
@@ -161,8 +245,6 @@ impl Editor {
                         .split('\n')
                         .map(|s| s.trim_end_matches('\r').to_string())
                         .collect();
-                    // split 会在末尾多出一个空串（窗口末尾就是换行符），去掉它，
-                    // 不去的话每个窗口结尾都会多一行空行。
                     if cache_lines.last().map(|s| s.is_empty()).unwrap_or(false) {
                         cache_lines.pop();
                     }
@@ -175,11 +257,8 @@ impl Editor {
         }
     }
 
-    /// 第 i 行的高亮入口状态。从已知的最近一行算到 i，结果缓存下来。
     pub fn state_at(&mut self, i: usize) -> LineState {
         if self.is_huge() {
-            // 大文件模式不回溯跨行状态：那要从文件头扫到当前行。
-            // 这是一条已知限制，写在 docs/PITFALLS.md 里，不假装它准。
             return LineState::default();
         }
         if self.states.is_empty() {
@@ -198,8 +277,6 @@ impl Editor {
     pub fn invalidate_states(&mut self, from_line: usize) {
         self.states.truncate(from_line.max(1));
     }
-
-    /// 已缓存的跨行状态数。只给测试用：否则「失效了」与「未失效」在行为上看不出区别。
     pub fn cached_state_count(&self) -> usize {
         self.states.len()
     }
@@ -216,20 +293,147 @@ impl Editor {
         })
     }
 
-    pub fn save(&mut self) -> io::Result<()> {
+    pub fn commit_undo_group(&mut self) {
+        if let Some(d) = self.doc_mut() {
+            d.commit_undo_group();
+        }
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.doc().map(|d| d.can_undo()).unwrap_or(false)
+    }
+    pub fn can_redo(&self) -> bool {
+        self.doc().map(|d| d.can_redo()).unwrap_or(false)
+    }
+
+    /// 撤销一**组**，并把光标放到被改动的地方。
+    ///
+    /// 为什么不让 UI 直接调 `doc_mut().undo()`：那样光标与高亮缓存的失效就散在 GUI 里，
+    /// 而快闸门碰不到 GUI。忘了失效的后果不是报错，是撤销之后高亮颜色停在旧状态上。
+    pub fn undo(&mut self) -> Option<Pos> {
+        let pos = self.doc_mut()?.undo()?;
+        self.cursor = pos;
+        self.anchor = None;
+        self.invalidate_states(pos.line);
+        Some(pos)
+    }
+
+    pub fn redo(&mut self) -> Option<Pos> {
+        let pos = self.doc_mut()?.redo()?;
+        self.cursor = pos;
+        self.anchor = None;
+        self.invalidate_states(pos.line);
+        Some(pos)
+    }
+
+    pub fn selected_text(&mut self) -> Option<String> {
+        let (a, b) = self.selection()?;
+        if a.line == b.line {
+            let l = self.line(a.line);
+            let from = clamp_col(&l, a.col);
+            let to = clamp_col(&l, b.col);
+            if to <= from {
+                return None;
+            }
+            return Some(l[from..to].to_string());
+        }
+        let mut out = String::new();
+        let first = self.line(a.line);
+        out.push_str(&first[clamp_col(&first, a.col)..]);
+        out.push('\n');
+        for i in a.line + 1..b.line {
+            out.push_str(&self.line(i));
+            out.push('\n');
+        }
+        let last = self.line(b.line);
+        out.push_str(&last[..clamp_col(&last, b.col)]);
+        Some(out)
+    }
+
+    pub fn cut_selection(&mut self) -> Option<String> {
+        let (a, b) = self.selection()?;
+        if self.is_huge() {
+            return None;
+        }
+        let text = self.doc_mut()?.delete(a, b);
+        self.cursor = a;
+        self.anchor = None;
+        self.invalidate_states(a.line);
+        if text.is_empty() {
+            None
+        } else {
+            Some(text)
+        }
+    }
+
+    pub fn insert_text(&mut self, text: &str) -> bool {
+        if self.is_huge() || text.is_empty() {
+            return false;
+        }
+        let sel = self.selection();
+        let at = sel.map(|(a, _)| a).unwrap_or(self.cursor);
+        let Some(d) = self.doc_mut() else {
+            return false;
+        };
+        let end = match sel {
+            Some((a, b)) => d.replace_range(a, b, text),
+            None => d.insert(at, text),
+        };
+        self.cursor = end;
+        self.anchor = None;
+        self.invalidate_states(at.line);
+        true
+    }
+
+    pub fn select_all(&mut self) {
+        let last = self.line_count().saturating_sub(1);
+        let len = self.line(last).len();
+        self.anchor = Some(Pos::new(0, 0));
+        self.cursor = Pos::new(last, len);
+    }
+
+    /// 保存到当前路径。没路径时报错而不是静默丢掉内容。
+    pub fn save(&mut self) -> io::Result<Saved> {
         let Some(path) = self.path.clone() else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "还没有文件名，先在上方输入路径",
+                "还没有文件名：在上方输入路径后再保存（或用另存为）",
             ));
         };
+        self.write_to(&path)
+    }
+
+    /// 另存为。除了写盘，它还必须重新认一次语言并丢掉高亮缓存：
+    /// 把一份文本另存成 `.rs` 之后它应该按 Rust 上色。不重算的话不会报错，
+    /// 只是颜色一直停在旧语言上，而用户会以为高亮坐坏了。
+    pub fn save_as(&mut self, path: &Path) -> io::Result<Saved> {
+        if path.as_os_str().is_empty() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "路径是空的"));
+        }
+        let saved = self.write_to(path)?;
+        self.path = Some(path.to_path_buf());
+        let lang = lang_from_path(&path.to_string_lossy());
+        if lang != self.lang {
+            self.lang = lang;
+            self.states.clear();
+        }
+        Ok(saved)
+    }
+
+    fn write_to(&mut self, path: &Path) -> io::Result<Saved> {
+        let existed = fio::info(path).is_ok();
         match &mut self.source {
             Source::Memory(d) => {
                 let text = d.to_text();
-                fio::save_atomic(&path, text.as_bytes())?;
+                fio::save_atomic(path, text.as_bytes())?;
                 d.mark_saved();
-                self.status = format!("已保存 {} （{} 字节）", path.display(), text.len());
-                Ok(())
+                let saved = Saved {
+                    path: path.to_path_buf(),
+                    bytes: text.len(),
+                    overwrote: existed,
+                };
+                self.status = saved.message();
+                Ok(saved)
             }
             Source::Huge { .. } => Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -238,7 +442,10 @@ impl Editor {
         }
     }
 
-    /// 搜索。返回 (命中位置, 是否到达上限)。
+    pub fn is_dirty(&self) -> bool {
+        self.doc().map(|d| d.is_dirty()).unwrap_or(false)
+    }
+
     pub fn search(&mut self, needle: &str, opts: SearchOptions) -> (Vec<Pos>, bool) {
         if needle.is_empty() {
             return (Vec::new(), false);
@@ -281,7 +488,6 @@ impl Editor {
         }
     }
 
-    /// 全部替换。大文件走磁盘上的流式路径，完事重建索引。
     pub fn replace_all(
         &mut self,
         needle: &str,
@@ -301,9 +507,11 @@ impl Editor {
                 let p = path.clone();
                 let n = fio::replace_in_place(&p, needle.as_bytes(), repl.as_bytes(), opts)?;
                 let index = fio::index_lines(&p)?;
+                let bytes = fio::info(&p)?.len as usize;
                 self.source = Source::Huge {
                     path: p,
                     index,
+                    bytes,
                     cache_from: 0,
                     cache_lines: Vec::new(),
                 };
@@ -319,8 +527,6 @@ impl Editor {
         }
     }
 
-    /// 向前一个**字符**（不是一个字节）。按字节走的话一敲左箭头就能把中文切开，
-    /// 而切开之后的表现是 panic。这两个本来卡在 UI 层里，永远验不到。
     pub fn prev_pos(&mut self, p: Pos) -> Pos {
         if p.col > 0 {
             let line = self.line(p.line);
@@ -333,8 +539,7 @@ impl Editor {
         if p.line == 0 {
             return p;
         }
-        let prev_len = self.line(p.line - 1).len();
-        Pos::new(p.line - 1, prev_len)
+        Pos::new(p.line - 1, self.line(p.line - 1).len())
     }
 
     pub fn next_pos(&mut self, p: Pos) -> Pos {
@@ -355,14 +560,19 @@ impl Editor {
 
 pub const WELCOME: &str = "# Yi Edit
 
-极简跨平台代码编辑器。快捷键：
+极简跳平台代码编辑器。快捷键：
 
+Ctrl+N  新建文件
 Ctrl+O  打开输入框里的路径
 Ctrl+S  保存（写临时文件再 rename，不会把原文件写成半截）
-Ctrl+F  定位到查找框
-Ctrl+Z / Ctrl+Y  撤销 / 重做
+Ctrl+Shift+S  另存为上方输入框里的路径
+Ctrl+F  开关查找栏
+Ctrl+A  全选
+Ctrl+C / Ctrl+X / Ctrl+V  复制 / 剪切 / 粘贴
+Ctrl+Z / Ctrl+Y  撤销 / 重做（按输入组，不是每个字符一步）
+Ctrl+B  开关侧栏
 Enter / Shift+Enter  下一个 / 上一个匹配
 
 超过 64 MB 的文件会以只读模式打开：只建行索引、按需读可见行，
-搜索与替换在磁盘上流式完成，不把文件整份拉进内存。
+搜索与替换在磁盘上流式完成，不把文件整份拉进内存。只读模式下仍可以选中并复制。
 ";

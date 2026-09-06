@@ -13,7 +13,10 @@ const FORBIDDEN: &[(&str, &str)] = &[
     ("SystemTime", "系统时间让结果不可重现"),
     ("Instant::now", "同上"),
     ("thread_rng", "未播种的随机让失败无法重现"),
-    ("eprintln!", "向终端写东西是 I/O，而且会在 GUI 下变成静默的垃圾"),
+    (
+        "eprintln!",
+        "向终端写东西是 I/O，而且会在 GUI 下变成静默的垃圾",
+    ),
     ("println!", "同上"),
 ];
 
