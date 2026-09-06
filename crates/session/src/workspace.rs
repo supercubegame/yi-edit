@@ -105,8 +105,7 @@ impl Workspace {
         }
         self.tabs.remove(index);
         if self.tabs.is_empty() {
-            self.tabs
-                .push(Tab::from_editor(Editor::empty(), "未命名"));
+            self.tabs.push(Tab::from_editor(Editor::empty(), "未命名"));
         }
         if self.active > index {
             self.active -= 1;
@@ -121,7 +120,10 @@ impl Workspace {
     }
 
     pub fn paths(&self) -> Vec<Option<PathBuf>> {
-        self.tabs.iter().map(|tab| tab.editor.path.clone()).collect()
+        self.tabs
+            .iter()
+            .map(|tab| tab.editor.path.clone())
+            .collect()
     }
 }
 

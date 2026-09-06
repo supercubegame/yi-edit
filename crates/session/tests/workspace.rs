@@ -6,8 +6,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use yi_edit_session::workspace::{CloseDecision, Workspace};
 use yi_edit_core::Pos;
+use yi_edit_session::workspace::{CloseDecision, Workspace};
 
 struct Tmp(PathBuf);
 
