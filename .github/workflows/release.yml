@@ -1,0 +1,345 @@
+name: release
+
+# 只发布**闸门验过**的提交。触发源是 verify 跑完（workflow_run），且要求
+# conclusion 是 success、head_branch 是主干。直接挂 push 的话，发出去的二进制
+# 可能是一份没过闸门的树，而「发布了」与「验过了」在页面上长得一模一样。
+#
+# **循环终止靠身份，不靠提交信息：** 目标 tag `v<版本>` 已存在就跳过。
+# 版本号只有一份真身（Cargo.toml 的 workspace.package.version），这里不再抄一份；
+# 要发新版就改那一行。字符串守卫（比如看提交信息里有没有 release）改一次模板就哑，
+# 而哑掉的表现不是红。
+#
+# **沉默通道：这条流水线不触发就等于什么都没发生**，而那与「没有新版本要发」
+# 在面板上一模一样。所以无论发还是跳，本流水线都会回写一条评论，
+# 里面带 trigger、head sha、版本与判定理由。没看到那条评论 ≡ 它根本没跑。
+#
+# 另：`runner.temp` 这类表达式不能用在 job 级 `env:` 里（拿不到上下文，
+# 整份工作流会无法加载而且一次也不跑）—— format.yml 上实测踩过。一律用 `$RUNNER_TEMP`。
+on:
+  workflow_run:
+    workflows: ["verify"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: 判定要不要发
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      EXPECTED_ASSETS: "3"
+    outputs:
+      should: ${{ steps.decide.outputs.should }}
+      version: ${{ steps.decide.outputs.version }}
+      sha: ${{ steps.decide.outputs.sha }}
+      why: ${{ steps.decide.outputs.why }}
+    steps:
+      - name: Checkout the commit under consideration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Decide
+        id: decide
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/rel"
+          log="${RUNNER_TEMP}/rel/plan.txt"
+          head_sha="${{ github.event.workflow_run.head_sha || github.sha }}"
+          head_branch="${{ github.event.workflow_run.head_branch || github.ref_name }}"
+          trigger="${{ github.event_name }}"
+          # 版本号只从 Cargo.toml 读（唯一真身）。
+          version=$(grep -m1 '^version = "' Cargo.toml | sed -e 's/^version = "//' -e 's/".*$//')
+          # 闸门结论：workflow_run 直接拿载荷；手动触发时去问 API。
+          # 两条路径都要真的问到结论：手动触发就免检的话，那个门禁等于没有。
+          concl="${{ github.event.workflow_run.conclusion }}"
+          if [ "${trigger}" != "workflow_run" ]; then
+            concl=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${head_sha}&per_page=100" \
+              --jq '[.workflow_runs[] | select(.name == "verify")][0].conclusion // "none"' 2>/dev/null || echo none)
+          fi
+          {
+            echo "trigger=${trigger}"
+            echo "head_sha=${head_sha}"
+            echo "head_branch=${head_branch}"
+            echo "version=${version}"
+            echo "verify_conclusion=${concl}"
+            echo "expected_assets=${EXPECTED_ASSETS}"
+          } > "${log}"
+          should=no
+          why=""
+          if [ -z "${version}" ]; then
+            why="Cargo.toml 里读不到版本号（不是「没有新版本」，是读失败）"
+          elif [ "${head_branch}" != "main" ]; then
+            why="这不是主干（${head_branch}），只发布主干"
+          elif [ "${concl}" != "success" ]; then
+            why="verify 在这个提交上是 ${concl}，没过闸门的树不发布"
+          elif gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v${version}" > /dev/null 2>&1; then
+            why="v${version} 已经发过了（不是「发布失败」）：要发新版就改 Cargo.toml 里的版本号"
+          else
+            should=yes
+            why="要发 v${version}（提交 ${head_sha}）"
+          fi
+          echo "should=${should}" | tee -a "${log}"
+          echo "why=${why}" | tee -a "${log}"
+          cat "${log}"
+          {
+            echo "should=${should}"
+            echo "version=${version}"
+            echo "sha=${head_sha}"
+            echo "why=${why}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-plan
+          path: ${{ runner.temp }}/rel
+          if-no-files-found: warn
+
+  build:
+    name: 构建 ${{ matrix.asset }}
+    needs: plan
+    if: needs.plan.outputs.should == 'yes'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      # 矩阵条数与 plan 里的 EXPECTED_ASSETS 耦合：改一头必须重算另一头。
+      # crates/meta/tests/release.rs 里有一条等号断言钉着两边。
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: linux-x86_64
+          - os: macos-latest
+            asset: macos-arm64
+          - os: windows-latest
+            asset: windows-x86_64
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - name: Linux GUI deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-x11-dev \
+            libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            pkg-config
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build --release -p yi-edit --bin yi-edit
+
+      # 打包。Windows 上用 zip（双击就能解），其它两个用 tar.gz。
+      # 7z 拉不到时**明报并退回 tar**，不静默：一个您默换了格式的包会让下载的人卡住。
+      - name: Package
+        id: pack
+        shell: bash
+        run: |
+          version="${{ needs.plan.outputs.version }}"
+          name="yi-edit-v${version}-${{ matrix.asset }}"
+          mkdir -p "pkg/${name}"
+          bin="target/release/yi-edit"
+          if [ ! -f "${bin}" ]; then
+            bin="${bin}.exe"
+          fi
+          test -f "${bin}"
+          cp "${bin}" "pkg/${name}/"
+          cp README.md "pkg/${name}/"
+          mkdir -p dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            if command -v 7z > /dev/null 2>&1; then
+              (cd pkg && 7z a -tzip "../dist/${name}.zip" "${name}") > /dev/null
+            else
+              echo "7z 拉不到，退回 tar.gz（不是「打包正常」）"
+              (cd pkg && tar czf "../dist/${name}.tar.gz" "${name}")
+            fi
+          else
+            (cd pkg && tar czf "../dist/${name}.tar.gz" "${name}")
+          fi
+          ls -l dist
+
+      - name: Upload package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-asset-${{ matrix.asset }}
+          path: dist
+          if-no-files-found: error
+
+  publish:
+    name: 打 tag 并发布
+    needs: [plan, build]
+    if: needs.plan.outputs.should == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      EXPECTED_ASSETS: "3"
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - name: Download packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-asset-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create the release
+        id: create
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/rel"
+          log="${RUNNER_TEMP}/rel/publish.txt"
+          version="${{ needs.plan.outputs.version }}"
+          sha="${{ needs.plan.outputs.sha }}"
+          ls -lR dist | tee "${log}"
+          n=$(find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) | wc -l | tr -d ' ')
+          echo "packages_found=${n} expected=${EXPECTED_ASSETS}" | tee -a "${log}"
+          if [ "${n}" -ne "${EXPECTED_ASSETS}" ]; then
+            echo "PACKAGE COUNT FAILED left: ${n} right: ${EXPECTED_ASSETS}" | tee -a "${log}"
+            echo "少了包就不发：一个只有两个平台的 Release 与完整的那个长得一模一样" | tee -a "${log}"
+            exit 1
+          fi
+          notes="${RUNNER_TEMP}/rel/notes.md"
+          {
+            echo "Yi Edit v${version}"
+            echo
+            echo "三平台可执行文件在下面的附件里（Linux / macOS arm64 / Windows）。"
+            echo
+            echo "本发布对应的提交是 \`${sha}\`，而且**它已经过了闸门**："
+            echo "本流水线只在 verify 在该提交上 conclusion 为 success 时才会发布。"
+            echo
+            echo "机器验不到的部分（请人工验收）："
+            echo "- macOS / Windows 屏幕上的真实界面（截图只在 Linux 上拍）"
+            echo "- 输入法的真实行为（候选框位置、转换段、删周围字符）"
+            echo "- macOS 风格像不像原生、滚动手感、字体观感"
+            echo
+            echo "已知限制与实测值：见 docs/PITFALLS.md。"
+          } > "${notes}"
+          gh release create "v${version}" \
+            --target "${sha}" \
+            --title "Yi Edit v${version}" \
+            --notes-file "${notes}" \
+            dist/*.tar.gz dist/*.zip 2>&1 | tee -a "${log}"
+
+      # 收敛自证：**「建了一个 Release」不等于「附件真的上去了」。**
+      # 上传失败时 gh 仍可能给一个看起来正常的 Release 页面，而下载的人看到的是一个空发布。
+      - name: Verify the assets really landed
+        id: verify_assets
+        shell: bash
+        run: |
+          log="${RUNNER_TEMP}/rel/publish.txt"
+          version="${{ needs.plan.outputs.version }}"
+          got=$(gh release view "v${version}" --json assets --jq '.assets | length')
+          echo "assets_on_release=${got} expected=${EXPECTED_ASSETS}" | tee -a "${log}"
+          gh release view "v${version}" --json assets --jq '.assets[].name' | tee -a "${log}"
+          if [ "${got}" -ne "${EXPECTED_ASSETS}" ]; then
+            echo "ASSET COUNT FAILED left: ${got} right: ${EXPECTED_ASSETS}" | tee -a "${log}"
+            exit 1
+          fi
+          # tag 也要真的存在并指向那个提交：下一轮的循环终止就靠它。
+          want="${{ needs.plan.outputs.sha }}"
+          got_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v${version}" --jq '.object.sha')
+          echo "tag_sha=${got_sha} want=${want}" | tee -a "${log}"
+          test "${got_sha}" = "${want}"
+
+      - name: Upload publish evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-publish
+          path: ${{ runner.temp }}/rel
+          if-no-files-found: warn
+
+  report:
+    name: 回写发布报告
+    needs: [plan, build, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+        continue-on-error: true
+
+      - name: Compose
+        shell: bash
+        run: |
+          {
+            echo "plan=${{ needs.plan.result }}"
+            echo "build=${{ needs.build.result }}"
+            echo "publish=${{ needs.publish.result }}"
+            echo "should_release=${{ needs.plan.outputs.should }}"
+            echo "version=${{ needs.plan.outputs.version }}"
+            echo "target_sha=${{ needs.plan.outputs.sha }}"
+            echo "why=${{ needs.plan.outputs.why }}"
+            echo "trigger=${{ github.event_name }}"
+            echo "run_id=${{ github.run_id }}"
+          } > release-outcomes.txt
+          if [ "${{ needs.plan.outputs.should }}" != "yes" ]; then
+            echo "本次没有发布任何东西（不是「发布失败」）。理由在上面的 why 里。" >> release-outcomes.txt
+          fi
+          echo "提醒：看不到本条评论 ≡ 发布流水线根本没跑（workflow_run 触发没生效）。" >> release-outcomes.txt
+          cat release-outcomes.txt
+          find artifacts -type f 2>/dev/null | head -n 40 > release-artifacts.txt || true
+          cat release-artifacts.txt || true
+
+      - name: Post raw release log
+        id: raw
+        continue-on-error: true
+        shell: bash
+        run: |
+          bash scripts/raw-log.sh "发布原始输出" 7 \
+            release-outcomes.txt release-artifacts.txt > raw-log-run.txt 2>&1
+      - name: Post raw release log with its own trace
+        if: always()
+        shell: bash
+        run: |
+          echo "raw_log_outcome=${{ steps.raw.outcome }}" >> raw-log-run.txt
+          bash scripts/raw-log.sh "发布原始输出" 7 \
+            raw-log-run.txt release-outcomes.txt release-artifacts.txt
+
+  verdict:
+    name: 发布总判
+    needs: [plan, build, publish, report]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any stage failed
+        shell: bash
+        run: |
+          echo "plan=${{ needs.plan.result }} build=${{ needs.build.result }} publish=${{ needs.publish.result }} report=${{ needs.report.result }}"
+          # skipped 是合法结果（没新版本要发），failure / cancelled 不是。
+          for r in "${{ needs.plan.result }}" "${{ needs.build.result }}" "${{ needs.publish.result }}" "${{ needs.report.result }}"; do
+            if [ "${r}" != "success" ] && [ "${r}" != "skipped" ]; then
+              echo "有阶段没成功：${r}"
+              exit 1
+            fi
+          done
