@@ -60,7 +60,7 @@ fn every_crate_has_an_entry_point() {
 /// 它第一次就会红，而失败原因只存在于我读不到的 CI 日志里。
 #[test]
 fn workflow_files_are_registered() {
-    const EXPECTED: &[&str] = &["format.yml", "verify.yml"];
+    const EXPECTED: &[&str] = &["format.yml", "release.yml", "verify.yml"];
     let mut actual = workflow_files();
     actual.sort();
     let mut want: Vec<String> = EXPECTED.iter().map(|s| s.to_string()).collect();
@@ -73,7 +73,7 @@ fn workflow_files_are_registered() {
 #[test]
 fn every_workflow_can_post_its_own_raw_log() {
     let files = workflow_files();
-    assert!(files.len() >= 2, "只扫到 {} 条工作流", files.len());
+    assert!(files.len() >= 3, "只扫到 {} 条工作流", files.len());
     for f in files {
         let src = meta::read(&format!(".github/workflows/{f}"));
         assert!(
@@ -85,6 +85,21 @@ fn every_workflow_can_post_its_own_raw_log() {
             "{f} 没带回写脚本自己的 trace（观察者不能是被观察的那个）"
         );
     }
+}
+
+/// 每条工作流都得有自己的 marker：共用一个的话后面的会把前面的盖掉，
+/// 而覆盖的表现是「那条日志本来就不存在」。这条只数数：marker 数量要够。
+#[test]
+fn there_are_enough_markers_for_every_report() {
+    let markers = meta::read("scripts/marker.txt")
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .count();
+    // 主报告 + 快闸门 + 三个平台 + 格式化 + 发布 = 7
+    assert!(
+        markers >= 7,
+        "只登记了 {markers} 个 marker，不够每种报告一个"
+    );
 }
 
 /// 格式化那条会**改代码并回推**，所以它的循环终止与诚实汇报得有断言守。
