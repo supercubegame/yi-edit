@@ -70,7 +70,11 @@ fn the_loop_terminates_on_tag_identity_not_on_a_commit_message() {
         code.contains("git/ref/tags/v"),
         "没有查 tag 存不存在，那每次主干绿都会再发一次"
     );
-    for banned in ["git log", "%s%b", "contains(github.event.head_commit.message"] {
+    for banned in [
+        "git log",
+        "%s%b",
+        "contains(github.event.head_commit.message",
+    ] {
         assert!(
             !code.contains(banned),
             "终止条件靠上了提交信息（{banned}），那种守卫哑掉不会红"
@@ -82,10 +86,7 @@ fn the_loop_terminates_on_tag_identity_not_on_a_commit_message() {
         !code.contains(&format!("v{version}\"")),
         "流水线里抄了一份版本号（v{version}），两头会各自漂"
     );
-    assert!(
-        code.contains("Cargo.toml"),
-        "版本号不是从 Cargo.toml 读的"
-    );
+    assert!(code.contains("Cargo.toml"), "版本号不是从 Cargo.toml 读的");
 }
 
 fn workspace_version() -> String {
@@ -132,10 +133,7 @@ fn the_platform_count_and_the_expected_asset_count_stay_coupled() {
     let code = meta::strip_yaml_comments(&src);
     let platforms = code.matches("- os: ").count();
     let expected = yaml_numbers(&src, "EXPECTED_ASSETS");
-    assert!(
-        !expected.is_empty(),
-        "没有 EXPECTED_ASSETS，附件数无从校对"
-    );
+    assert!(!expected.is_empty(), "没有 EXPECTED_ASSETS，附件数无从校对");
     println!("实测：平台 {platforms} 个，期望附件数 {expected:?}");
     for n in &expected {
         assert_eq!(
@@ -146,7 +144,10 @@ fn the_platform_count_and_the_expected_asset_count_stay_coupled() {
     // 多处写的话必须彼此一致：只改一处比两处都错更难查。
     let first = expected[0];
     for n in &expected {
-        assert_eq!(*n, first, "EXPECTED_ASSETS 在不同 job 里写了不同的值：{expected:?}");
+        assert_eq!(
+            *n, first,
+            "EXPECTED_ASSETS 在不同 job 里写了不同的值：{expected:?}"
+        );
     }
     assert!(platforms >= 3, "只发 {platforms} 个平台");
 }
@@ -188,10 +189,7 @@ fn skipping_is_reported_out_loud_and_never_reads_like_success() {
 fn the_release_notes_admit_what_the_machine_cannot_check() {
     let src = release_yml();
     let code = meta::strip_yaml_comments(&src);
-    assert!(
-        code.contains("人工验收"),
-        "发布说明里没写机器验不到的部分"
-    );
+    assert!(code.contains("人工验收"), "发布说明里没写机器验不到的部分");
     assert!(
         code.contains("docs/PITFALLS.md"),
         "发布说明里没指向已知限制档案"
