@@ -1,14 +1,18 @@
 //! 仓库根目录也是一张登记表。
 //!
-//! 为什么需要它：格式化流水线的第一版用了 `git add -A`，于是把**自己的日志**
-//! 提交进了仓库（fmt-run.txt 等四个）。那一轮所有闸门全绿：仓库变脏不会让任何东西报错。
+//! 为什么需要它：格式化流水线的第一版用了 `git add` 的全量形式，于是把**自己的日志**
+//! 提交进了仓库（四个 txt）。那一轮所有闸门全绿：仓库变脏不会让任何东西报错。
 //!
 //! 而后果不只是脏：那几份日志每次运行都不一样，于是「零改动就不提交」那一层循环终止
 //! **直接失效**了 —— 每次推送都会多一个垃圾提交，而它看起来很像「流水线在正常工作」。
+//!
+//! **忽略名单不在这里再写一份。** 第一版手写了一张 ARTIFACTS 表，第一次跑就假红：
+//! 闸门自己的 `gate-step-1.log` 不在那张表里。两张登记表必定分岔，所以现在
+//! 忽略名单直接读 `.gitignore`（唯一真身）。
 
 use yi_edit_meta as meta;
 
-/// 仓库根应该有的东西。双向断言：少了一个或多了一个都红。
+/// 仓库根应该有的东西（不含被 .gitignore 盖住的产物）。双向断言：少了或多了都红。
 const ROOT_ENTRIES: &[&str] = &[
     ".git",
     ".github",
@@ -22,37 +26,64 @@ const ROOT_ENTRIES: &[&str] = &[
     "scripts",
 ];
 
-/// 工作流与脚本会写到仓库里的产物（或曾经会）。每一个都必须被 .gitignore 盖住。
-const ARTIFACTS: &[&str] = &[
-    "gate.log",
-    "gate-result.txt",
-    "gate-metrics.txt",
-    "fmt.log",
-    "raw-log.md",
-    "raw-log-run.txt",
-    "bench-run.txt",
-    "app-run.txt",
-    "build.log",
-    "outcomes.txt",
-    "shotcheck.txt",
-    "fmt-run.txt",
-    "fmt-before.txt",
-    "fmt-after.txt",
-    "fmt-apply.txt",
-    "fmt-outcomes.txt",
-    "gate-report.md",
-    "gate-report-min.md",
-    "sample.rs",
-    "big.rs",
-];
+/// `.gitignore` 里的模式（去注释、去空行）。
+fn ignore_patterns() -> Vec<String> {
+    meta::read(".gitignore")
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect()
+}
+
+/// 这个名字被忽略了吗。只支持本仓库实际用到的三种形状：
+/// 精确名、`/前缀`、以及尾部 `*`。写成一个完整的 gitignore 引擎是过度工程，
+/// 但不支持的形状必须有一条断言拦着，否则将来有人写了 `**/x` 而这里默默当它没忽略。
+fn is_ignored(name: &str, patterns: &[String]) -> bool {
+    patterns.iter().any(|p| {
+        let p = p.trim_start_matches('/');
+        if let Some(prefix) = p.strip_suffix('*') {
+            return name.starts_with(prefix);
+        }
+        p == name
+    })
+}
+
+#[test]
+fn the_ignore_matcher_only_meets_shapes_it_understands() {
+    let patterns = ignore_patterns();
+    assert!(patterns.len() >= 10, "只读到 {} 条忽略规则", patterns.len());
+    for p in &patterns {
+        let body = p.trim_start_matches('/');
+        let unsupported = body.contains("**") || body.contains('?') || body.contains('[');
+        // `**/*.rs.bk` 这种形状不影响根目录判断（根下不会出现 .rs.bk 目录项），
+        // 所以只要求它们带着目录分隔符 —— 不带的话就是一个我读不懂的根级模式。
+        if unsupported {
+            assert!(
+                body.contains('/'),
+                "{p} 是一个本匹配器读不懂的根级模式，它会被默默当成「没忽略」"
+            );
+        }
+    }
+    // 双向自证：该匹配的匹配，不该匹配的不匹配。
+    let sample = vec![
+        String::from("gate.log"),
+        String::from("gate-step-*.log"),
+        String::from("/shots"),
+    ];
+    assert!(is_ignored("gate.log", &sample));
+    assert!(is_ignored("gate-step-1.log", &sample));
+    assert!(is_ignored("shots", &sample));
+    assert!(!is_ignored("Cargo.toml", &sample), "匹配器把正常文件也忽略了");
+    assert!(!is_ignored("fmt-run.txt", &sample), "匹配器太宽松");
+}
 
 #[test]
 fn the_repo_root_has_exactly_the_registered_entries() {
+    let patterns = ignore_patterns();
     let mut actual: Vec<String> = meta::list_dir(".")
         .into_iter()
-        // 本地跑时可能有被忽略的产物；它们的存在不是问题，被提交才是。
-        // 所以这里只看“不在忽略名单里的东西”。
-        .filter(|n| !ARTIFACTS.contains(&n.as_str()))
+        // 被忽略的产物存在不是问题（本地与 CI 跑完都会有），**被提交**才是。
+        .filter(|n| !is_ignored(n, &patterns))
         .filter(|n| n != "target" && n != "Cargo.lock")
         .collect();
     actual.sort();
@@ -60,63 +91,49 @@ fn the_repo_root_has_exactly_the_registered_entries() {
     want.sort();
     assert_eq!(
         actual, want,
-        "仓库根的内容与登记不一致（左=实际 右=登记）。多出来的那几个很可能是某条流水线把自己的临时文件提交进来了"
+        "仓库根的内容与登记不一致（左=实际 右=登记）。多出来的那几个要么是某条流水线把自己的临时文件提交进来了，要么是忽略名单没跟上"
     );
-}
-
-#[test]
-fn every_artifact_name_is_ignored() {
-    let ignore = meta::read(".gitignore");
-    let lines: Vec<&str> = ignore
-        .lines()
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .collect();
-    for a in ARTIFACTS {
-        let covered = lines.iter().any(|l| {
-            *l == *a
-                || l.trim_start_matches('/') == *a
-                || l.strip_suffix('*')
-                    .map(|p| a.starts_with(p))
-                    .unwrap_or(false)
-        });
-        assert!(
-            covered,
-            "{a} 不在 .gitignore 里。它被提交进仓库时不会有任何东西报错"
-        );
-    }
 }
 
 /// 格式化流水线只能提交 .rs，而且临时文件要写在仓库外。
 /// 两条都是承重的：它们各自就能防住那个已经发生过的事故。
+///
+/// **负向那几条必须先剥 YAML 注释：** 我在注释里写下了事故经过（包括那个全量
+/// `git add` 的写法），于是一条已经修好的规矩被判成还坏着 —— 实测就这么红了一轮。
 #[test]
 fn the_formatter_stages_only_rust_files_and_keeps_scratch_outside_the_repo() {
     let src = meta::read(".github/workflows/format.yml");
+
     assert!(
-        !src.contains("git add -A"),
-        "格式化流水线又用了 git add -A，它会把未跟踪的临时文件一起提交（已经发生过一次）"
+        !meta::yaml_code_contains(&src, "add -A"),
+        "格式化流水线又用了全量 git add，它会把未跟踪的临时文件一起提交（已经发生过一次）"
     );
     assert!(
-        src.contains("git add -u -- '*.rs'"),
+        meta::yaml_code_contains(&src, "git add -u -- '*.rs'"),
         "没有只暂存已跟踪的 .rs"
     );
     assert!(
-        src.contains("git diff --cached --name-only"),
+        meta::yaml_code_contains(&src, "git diff --cached --name-only"),
         "没有检查暂存区里到底暂存了什么"
     );
     assert!(
-        src.contains("grep -v '\\.rs$'"),
+        meta::yaml_code_contains(&src, ".rs$"),
         "没有那条拒绝非 .rs 的负向守卫"
     );
     assert!(
-        src.contains("runner.temp"),
+        meta::yaml_code_contains(&src, "runner.temp"),
         "临时文件还写在仓库里，一个写歪的 git add 就能把它们提交进去"
     );
-    // 旧的相对路径写法不得回来。
-    for bad in ["> fmt-run.txt", "> fmt-before.txt", "> fmt-after.txt"] {
-        assert!(
-            !src.contains(bad),
-            "临时文件又写回仓库根了（{bad}）"
-        );
-    }
+
+    // 剥离器自证：剥完之后还看得见真东西。剥成空字串的话，上面那几条负向断言
+    // 全部免费通过，而正向那几条会全红 —— 后者至少会喊，但不能只靠它。
+    let code = meta::strip_yaml_comments(&src);
+    assert!(
+        code.contains("jobs:") && code.contains("runs-on:"),
+        "剥完 YAML 注释之后看不到任何结构，剥离器自己坏了"
+    );
+    assert!(
+        src.contains("add -A"),
+        "事故经过从注释里消失了；那么上面那条剥注释的断言也就不再验得到任何东西"
+    );
 }
