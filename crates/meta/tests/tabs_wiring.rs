@@ -9,7 +9,12 @@ fn top_level_tab_wrapper_is_the_compiled_app() {
     assert!(main.contains("mod tabs_ui"));
     assert!(main.contains("tabs_ui::TabsUi::new"));
     let tabs = meta::read("crates/app/src/tabs_ui.rs");
-    for needle in ["struct TabsUi", "tabs: Vec<YiEdit>", "self.active = i", "YiEdit::new(None)"] {
+    for needle in [
+        "struct TabsUi",
+        "tabs: Vec<YiEdit>",
+        "self.active = i",
+        "YiEdit::new(None)",
+    ] {
         assert!(tabs.contains(needle), "tab UI 缺少 {needle}");
     }
 }
