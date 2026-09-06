@@ -53,15 +53,12 @@ impl Workspace {
     pub fn tabs(&self) -> &[Tab] {
         &self.tabs
     }
-
     pub fn active_index(&self) -> usize {
         self.active
     }
-
     pub fn active(&self) -> &Tab {
         &self.tabs[self.active]
     }
-
     pub fn active_mut(&mut self) -> &mut Tab {
         &mut self.tabs[self.active]
     }
@@ -76,8 +73,8 @@ impl Workspace {
             self.active = i;
             return Ok(i);
         }
-        let editor = Editor::open(path)?;
-        self.tabs.push(Tab::from_editor(editor, "未命名"));
+        self.tabs
+            .push(Tab::from_editor(Editor::open(path)?, "未命名"));
         self.active = self.tabs.len() - 1;
         Ok(self.active)
     }
@@ -96,12 +93,9 @@ impl Workspace {
         true
     }
 
-    pub fn close(&mut self, index: usize) -> CloseDecision {
+    fn remove_at(&mut self, index: usize) -> CloseDecision {
         if index >= self.tabs.len() {
             return CloseDecision::InvalidIndex;
-        }
-        if self.tabs[index].is_dirty() {
-            return CloseDecision::RefusedDirty;
         }
         self.tabs.remove(index);
         if self.tabs.is_empty() {
@@ -115,8 +109,27 @@ impl Workspace {
         CloseDecision::Closed
     }
 
+    /// 普通关闭：脏 tab 必须先走 UI 的保存/放弃/取消选择，不能静默丢内容。
+    pub fn close(&mut self, index: usize) -> CloseDecision {
+        if index >= self.tabs.len() {
+            return CloseDecision::InvalidIndex;
+        }
+        if self.tabs[index].is_dirty() {
+            return CloseDecision::RefusedDirty;
+        }
+        self.remove_at(index)
+    }
+
+    /// 明确的“放弃并关闭”。UI 只有在用户明确点放弃时才调用它。
+    pub fn discard_close(&mut self, index: usize) -> CloseDecision {
+        self.remove_at(index)
+    }
+
     pub fn close_active(&mut self) -> CloseDecision {
         self.close(self.active)
+    }
+    pub fn discard_close_active(&mut self) -> CloseDecision {
+        self.discard_close(self.active)
     }
 
     pub fn paths(&self) -> Vec<Option<PathBuf>> {
