@@ -9,7 +9,12 @@ name: format
 #   1. 内容幂等：已经规范的代码再格式化一次零改动，零改动就不提交。
 #   2. 平台规则：默认令牌推的提交不会再触发工作流。
 #
-# **而第 2 条同时是一个沉默通道：** 它意味着回推的那个提交**没经过闸门**，
+# **而第 1 层第一版是坏的，实测踩了：** 第一版用 `git add -A`，于是它把**自己的日志文件**
+# 一起提交进了仓库（fmt-run.txt 等四个）。后果不只是脏：日志每次都变，
+# 于是「零改动」永远不成立，幂等那一层直接失效。现在临时文件全写在 $RUNNER_TEMP（仓库外），
+# 并且只暂存 .rs，暂存区里出现非 .rs 就直接红。
+#
+# **第 2 条同时是一个沉默通道：** 它意味着回推的那个提交**没经过闸门**，
 # 而面板上会留着上一个提交的绿对勾。所以本流水线最后一定会把这句话印出来并贴成评论：
 # 格式化提交需要下一次推送才会被闸门看到。不写这句的话，「没验」与「验过了」在面板上一模一样。
 on:
@@ -32,6 +37,9 @@ jobs:
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 临时文件全部写在仓库外。写在仓库里的话，一个写歪的 git add 就能把它们提交进去，
+      # 而那正是第一版真实发生的事。
+      LOGDIR: ${{ runner.temp }}/fmt
     steps:
       # pull_request 默认签出的是合并提交（游离头），那上面推不回去。必须签出头分支。
       - name: Checkout head branch
@@ -44,27 +52,29 @@ jobs:
         id: toolchain
         continue-on-error: true
         run: |
+          mkdir -p "${LOGDIR}"
           rustup component add rustfmt
-          rustfmt --version > fmt-run.txt 2>&1
-          cargo --version >> fmt-run.txt 2>&1
-          cat fmt-run.txt
+          rustfmt --version > "${LOGDIR}/fmt-run.txt" 2>&1
+          cargo --version >> "${LOGDIR}/fmt-run.txt" 2>&1
+          cat "${LOGDIR}/fmt-run.txt"
 
       # 先量一下：没有这个数的话，「本来就已经规范」与「格式化压根没跑」分不开。
       - name: Measure before
         id: before
         continue-on-error: true
         run: |
-          cargo fmt --all -- --check > fmt-before.txt 2>&1 || true
-          before=$(grep -c '^Diff in ' fmt-before.txt || true)
-          echo "fmt_diff_before=${before:-0}" | tee -a fmt-run.txt
+          mkdir -p "${LOGDIR}"
+          cargo fmt --all -- --check > "${LOGDIR}/fmt-before.txt" 2>&1 || true
+          before=$(grep -c '^Diff in ' "${LOGDIR}/fmt-before.txt" || true)
+          echo "fmt_diff_before=${before:-0}" | tee -a "${LOGDIR}/fmt-run.txt"
           echo "before=${before:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Run cargo fmt
         id: fmt
         continue-on-error: true
         run: |
-          cargo fmt --all > fmt-apply.txt 2>&1
-          cat fmt-apply.txt || true
+          cargo fmt --all > "${LOGDIR}/fmt-apply.txt" 2>&1
+          cat "${LOGDIR}/fmt-apply.txt" || true
 
       # 收敛自证：格式化完之后再检查必须是 0。不是 0 就说明有文件没被处理
       # （解析不过 / 被忽略），那时候「推了一个提交」与「真的归零了」完全不是一件事。
@@ -72,29 +82,44 @@ jobs:
         id: after
         continue-on-error: true
         run: |
-          cargo fmt --all -- --check > fmt-after.txt 2>&1 || true
-          after=$(grep -c '^Diff in ' fmt-after.txt || true)
-          echo "fmt_diff_after=${after:-0}" | tee -a fmt-run.txt
+          cargo fmt --all -- --check > "${LOGDIR}/fmt-after.txt" 2>&1 || true
+          after=$(grep -c '^Diff in ' "${LOGDIR}/fmt-after.txt" || true)
+          echo "fmt_diff_after=${after:-0}" | tee -a "${LOGDIR}/fmt-run.txt"
           echo "after=${after:-0}" >> "$GITHUB_OUTPUT"
-          changed=$(git status --porcelain | wc -l | tr -d ' ')
-          echo "changed_files=${changed}" | tee -a fmt-run.txt
+          # 只数已跟踪的 .rs：工作区里其它东西（产物、未跟踪文件）不归本流水线管。
+          changed=$(git status --porcelain -- '*.rs' | wc -l | tr -d ' ')
+          echo "changed_rs_files=${changed}" | tee -a "${LOGDIR}/fmt-run.txt"
           echo "changed=${changed}" >> "$GITHUB_OUTPUT"
-          git diff --stat | tail -n 20 >> fmt-run.txt || true
+          git status --porcelain >> "${LOGDIR}/fmt-run.txt" || true
+          git diff --stat -- '*.rs' | tail -n 20 >> "${LOGDIR}/fmt-run.txt" || true
 
       - name: Commit and push
         id: push
         continue-on-error: true
         run: |
           if [ "${{ steps.after.outputs.changed }}" = "0" ]; then
-            echo "本次没有改动任何文件（不是「格式化没跑」）：rustfmt 认为已经是规范格式" | tee -a fmt-run.txt
+            echo "本次没有改动任何文件（不是「格式化没跑」）：rustfmt 认为已经是规范格式" \
+              | tee -a "${LOGDIR}/fmt-run.txt"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "style: cargo fmt --all (由 format 流水线执行)" >> fmt-run.txt 2>&1
-          git push origin "HEAD:${{ github.head_ref || github.ref_name }}" >> fmt-run.txt 2>&1
-          echo "已推送格式化提交：$(git rev-parse HEAD)" | tee -a fmt-run.txt
+          # 只暂存**已跟踪的 .rs**。-A 会把未跟踪的临时文件一起提交，实测就是那样脏的。
+          git add -u -- '*.rs'
+          staged=$(git diff --cached --name-only)
+          echo "staged:" >> "${LOGDIR}/fmt-run.txt"
+          echo "${staged}" >> "${LOGDIR}/fmt-run.txt"
+          # 负向守卫：暂存区里出现非 .rs 就立即红。这一条是承重的 ——
+          # 一个把自己日志提交进仓库的格式化流水线不会报错，只会让仓库愈来愈脏。
+          bad=$(echo "${staged}" | grep -v '\.rs$' || true)
+          if [ -n "${bad}" ]; then
+            echo "暂存区里出现了非 .rs 文件，拒绝提交：" | tee -a "${LOGDIR}/fmt-run.txt"
+            echo "${bad}" | tee -a "${LOGDIR}/fmt-run.txt"
+            exit 1
+          fi
+          git commit -m "style: cargo fmt --all (由 format 流水线执行)" >> "${LOGDIR}/fmt-run.txt" 2>&1
+          git push origin "HEAD:${{ github.head_ref || github.ref_name }}" >> "${LOGDIR}/fmt-run.txt" 2>&1
+          echo "已推送格式化提交：$(git rev-parse HEAD)" | tee -a "${LOGDIR}/fmt-run.txt"
 
       - name: Evaluate
         id: verdict
@@ -108,11 +133,11 @@ jobs:
             echo "push=${{ steps.push.outcome }}"
             echo "fmt_diff_before=${{ steps.before.outputs.before }}"
             echo "fmt_diff_after=${{ steps.after.outputs.after }}"
-            echo "changed_files=${{ steps.after.outputs.changed }}"
-          } > fmt-outcomes.txt
-          cat fmt-outcomes.txt
+            echo "changed_rs_files=${{ steps.after.outputs.changed }}"
+          } > "${LOGDIR}/fmt-outcomes.txt"
+          cat "${LOGDIR}/fmt-outcomes.txt"
           fail=0
-          note() { echo "VERDICT FAIL: $1" | tee -a fmt-outcomes.txt; fail=1; }
+          note() { echo "VERDICT FAIL: $1" | tee -a "${LOGDIR}/fmt-outcomes.txt"; fail=1; }
           [ "${{ steps.toolchain.outcome }}" = success ] || note "拉不到 rustfmt（本次没有格式化任何东西）"
           [ "${{ steps.fmt.outcome }}" = success ] || note "cargo fmt 自己失败了"
           [ "${{ steps.push.outcome }}" = success ] || note "推送失败（格式化结果没落盘）"
@@ -130,19 +155,14 @@ jobs:
             echo "注意：本流水线只负责格式化，**它不是闸门**。"
             echo "默认令牌推的提交不会再触发工作流，所以刚回推的那个提交目前是**未经验证**的。"
             echo "下一次人工推送（或手动重跑 verify）才会真正验它。"
-          } >> fmt-outcomes.txt
+          } >> "${LOGDIR}/fmt-outcomes.txt"
 
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: format-evidence
-          path: |
-            fmt-run.txt
-            fmt-outcomes.txt
-            fmt-before.txt
-            fmt-after.txt
-            fmt-apply.txt
+          path: ${{ runner.temp }}/fmt
           if-no-files-found: warn
 
       # 回写通道：否则这条流水线红了之后我手里只剩一个比特。自己也带一道 trace，
@@ -152,13 +172,15 @@ jobs:
         continue-on-error: true
         run: |
           bash scripts/raw-log.sh "格式化原始输出" 6 \
-            fmt-outcomes.txt fmt-run.txt fmt-after.txt > raw-log-run.txt 2>&1
+            "${LOGDIR}/fmt-outcomes.txt" "${LOGDIR}/fmt-run.txt" "${LOGDIR}/fmt-after.txt" \
+            > "${LOGDIR}/raw-log-run.txt" 2>&1
       - name: Post raw format log with its own trace
         if: always()
         run: |
-          echo "raw_log_outcome=${{ steps.raw.outcome }}" >> raw-log-run.txt
+          echo "raw_log_outcome=${{ steps.raw.outcome }}" >> "${LOGDIR}/raw-log-run.txt"
           bash scripts/raw-log.sh "格式化原始输出" 6 \
-            raw-log-run.txt fmt-outcomes.txt fmt-run.txt fmt-after.txt
+            "${LOGDIR}/raw-log-run.txt" "${LOGDIR}/fmt-outcomes.txt" "${LOGDIR}/fmt-run.txt" \
+            "${LOGDIR}/fmt-after.txt"
 
       - name: Fail if the evaluation failed
         if: always()
