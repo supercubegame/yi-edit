@@ -6,9 +6,13 @@
 //! 而后果不只是脏：那几份日志每次运行都不一样，于是「零改动就不提交」那一层循环终止
 //! **直接失效**了 —— 每次推送都会多一个垃圾提交，而它看起来很像「流水线在正常工作」。
 //!
-//! **忽略名单不在这里再写一份。** 第一版手写了一张 ARTIFACTS 表，第一次跑就假红：
+//! **忽略名单不在这里再写一份。** 第一版手写了一张产物表，第一次跑就假红：
 //! 闸门自己的 `gate-step-1.log` 不在那张表里。两张登记表必定分岔，所以现在
 //! 忽略名单直接读 `.gitignore`（唯一真身）。
+//!
+//! **而那个匹配器第一版也是错的，是它自己的自证拓到的：** 只支持尾部 `*`，
+//! 而 `.gitignore` 里真实存在的是 `gate-step-*.log`（星号在中间）。
+//! 没有那条双向自证的话，它会默默把闸门产物当成「未登记的垃圾」，变成一台假红工厂。
 
 use yi_edit_meta as meta;
 
@@ -35,16 +39,21 @@ fn ignore_patterns() -> Vec<String> {
         .collect()
 }
 
-/// 这个名字被忽略了吗。只支持本仓库实际用到的三种形状：
-/// 精确名、`/前缀`、以及尾部 `*`。写成一个完整的 gitignore 引擎是过度工程，
-/// 但不支持的形状必须有一条断言拦着，否则将来有人写了 `**/x` 而这里默默当它没忽略。
+/// 这个名字被忽略了吗。只支持本仓库实际用到的形状：精确名、`/前缀`、
+/// 以及**一个星号（位置不限）**。写一个完整的 gitignore 引擎是过度工程，
+/// 但不支持的形状必须有一条断言拦着，否则将来有人写了一个我读不懂的模式，
+/// 而这里会默默当它没忽略。
 fn is_ignored(name: &str, patterns: &[String]) -> bool {
     patterns.iter().any(|p| {
         let p = p.trim_start_matches('/');
-        if let Some(prefix) = p.strip_suffix('*') {
-            return name.starts_with(prefix);
+        match p.split_once('*') {
+            Some((pre, post)) => {
+                name.len() >= pre.len() + post.len()
+                    && name.starts_with(pre)
+                    && name.ends_with(post)
+            }
+            None => p == name,
         }
-        p == name
     })
 }
 
@@ -54,7 +63,10 @@ fn the_ignore_matcher_only_meets_shapes_it_understands() {
     assert!(patterns.len() >= 10, "只读到 {} 条忽略规则", patterns.len());
     for p in &patterns {
         let body = p.trim_start_matches('/');
-        let unsupported = body.contains("**") || body.contains('?') || body.contains('[');
+        let unsupported = body.contains("**")
+            || body.contains('?')
+            || body.contains('[')
+            || body.matches('*').count() > 1;
         // `**/*.rs.bk` 这种形状不影响根目录判断（根下不会出现 .rs.bk 目录项），
         // 所以只要求它们带着目录分隔符 —— 不带的话就是一个我读不懂的根级模式。
         if unsupported {
@@ -65,16 +77,24 @@ fn the_ignore_matcher_only_meets_shapes_it_understands() {
         }
     }
     // 双向自证：该匹配的匹配，不该匹配的不匹配。
+    // `gate-step-*.log` 是真实存在的模式，星号在中间 —— 第一版匹配器就挂在这里。
     let sample = vec![
         String::from("gate.log"),
         String::from("gate-step-*.log"),
         String::from("/shots"),
     ];
     assert!(is_ignored("gate.log", &sample));
-    assert!(is_ignored("gate-step-1.log", &sample));
+    assert!(
+        is_ignored("gate-step-1.log", &sample),
+        "星号在中间的模式没匹配上"
+    );
     assert!(is_ignored("shots", &sample));
     assert!(!is_ignored("Cargo.toml", &sample), "匹配器把正常文件也忽略了");
     assert!(!is_ignored("fmt-run.txt", &sample), "匹配器太宽松");
+    assert!(
+        !is_ignored("gate-step-", &sample),
+        "长度不够的名字也被匹配了（前后缀重叠）"
+    );
 }
 
 #[test]
