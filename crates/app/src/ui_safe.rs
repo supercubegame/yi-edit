@@ -6,13 +6,13 @@
 //! 配上一整套绿的断言，看起来比没写还像做完了。现在面板真的在画，
 //! 而且截图检查器多了一个竖带检查盯着它（横带对「右侧整条没画」毫无意见）。
 //!
-//! 自动缩进与括号匹配同理：逻辑全在 `yi_edit_core::indent`（纯函数、进快闸门），
-//! 这一层只负责消费它的输出。
+//! 自动缩进、括号匹配、路径截短同理：逻辑全在 `yi_edit_core`（纯函数、进快闸门），
+//! 这一层只负责消费它们的输出。
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use yi_edit_core::{highlight_line, indent, Pos, SearchOptions, TokenKind};
+use yi_edit_core::{elide, highlight_line, indent, Pos, SearchOptions, TokenKind};
 use yi_edit_session::browser::{self, Listing};
 use yi_edit_session::fontpick;
 use yi_edit_session::jump::JumpMap;
@@ -24,6 +24,13 @@ use crate::theme as th;
 
 fn mono() -> egui::FontId {
     egui::FontId::monospace(th::FONT_SIZE)
+}
+
+/// 侧栏用的小号等宽字体。
+///
+/// **侧栏必须是等宽的**，否则「列」不是一个真实单位，而路径预算就只能靠拍。
+fn mono_small() -> egui::FontId {
+    egui::FontId::monospace(11.0)
 }
 
 fn sans(size: f32) -> egui::FontId {
@@ -655,6 +662,23 @@ impl YiEdit {
         );
     }
 
+    /// 这个宽度能放下多少列等宽字符。
+    ///
+    /// **量，而不是拍。** 拍一个数就等于把「侧栏多宽」写成第二份真身，
+    /// 改了 `SIDEBAR_W` 之后它不会跟上，而不跟上的表现是文字又挤出去 ——
+    /// 那正是这一轮要修的东西。
+    fn columns_that_fit(ui: &egui::Ui, width: f32, font: egui::FontId) -> usize {
+        let one = ui
+            .painter()
+            .layout_no_wrap(String::from("M"), font, th::TEXT)
+            .rect
+            .width();
+        if !(one > 0.0) {
+            return 0;
+        }
+        (width / one).max(0.0) as usize
+    }
+
     fn sidebar(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
         ui.painter().rect_filled(rect, 0.0, th::CHROME);
@@ -669,16 +693,22 @@ impl YiEdit {
                 .font(sans(11.0))
                 .color(th::TEXT_DIM),
         );
+        // 路径预算：按量出来的列宽算，截短逻辑走 `elide`（纯函数、有断言）。
+        // 真机截图里那段 Windows 绝对路径挤成了三行 —— 挤压不报错，它只是难读。
+        let budget = Self::columns_that_fit(ui, (rect.width() - 16.0).max(0.0), mono_small());
         // 先 clone 快照：循环里要改 self.listing，而边迭代边改是借用冲突。
         let snapshot = self.listing.clone();
         let mut open = None;
         let mut change_dir = None;
         if let Some(listing) = snapshot {
+            let full_dir = listing.dir.to_string_lossy().to_string();
             ui.label(
-                egui::RichText::new(listing.dir.to_string_lossy())
-                    .font(sans(10.0))
+                egui::RichText::new(elide::elide_path(&full_dir, budget))
+                    .font(mono_small())
                     .color(th::TEXT_DIM),
-            );
+            )
+            // 截短之后完整路径仍然拿得到：截短是为了好读，不是为了丢信息。
+            .on_hover_text(full_dir);
             let current = self.ed.path.clone();
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
@@ -686,22 +716,26 @@ impl YiEdit {
                     for entry in listing.entries {
                         let path = entry.path.clone();
                         let is_current = current.as_deref() == Some(path.as_path());
-                        let label = if entry.is_dir {
+                        let full = if entry.is_dir {
                             format!("{}/", entry.name)
                         } else {
                             entry.name.clone()
                         };
-                        let text = if is_current {
-                            egui::RichText::new(label).color(th::ACCENT)
-                        } else {
-                            egui::RichText::new(label).color(th::TEXT)
-                        };
-                        if ui.add(egui::Button::new(text).frame(is_current)).clicked() {
+                        let label = elide::elide_path(&full, budget);
+                        let color = if is_current { th::ACCENT } else { th::TEXT };
+                        let text = egui::RichText::new(label.clone())
+                            .font(mono_small())
+                            .color(color);
+                        let response = ui.add(egui::Button::new(text).frame(is_current));
+                        if response.clicked() {
                             if entry.is_dir {
                                 change_dir = Some(path);
                             } else {
                                 open = Some(path);
                             }
+                        }
+                        if label != full {
+                            response.on_hover_text(full);
                         }
                     }
                 });
