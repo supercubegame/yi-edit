@@ -18,3 +18,15 @@ build.log
 outcomes.txt
 shotcheck.txt
 /shots
+
+# 格式化流水线的临时文件。它们现在写在仓库外（$RUNNER_TEMP），这里是第二层保险：
+# 第一版就是因为这两层都没有，把自己的日志提交进了仓库。
+fmt-run.txt
+fmt-before.txt
+fmt-after.txt
+fmt-apply.txt
+fmt-outcomes.txt
+gate-report.md
+gate-report-min.md
+sample.rs
+big.rs
