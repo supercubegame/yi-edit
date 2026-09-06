@@ -14,6 +14,7 @@
 pub mod consts;
 pub mod edit;
 pub mod highlight;
+pub mod indent;
 pub mod lines;
 pub mod replace;
 pub mod search;
@@ -22,6 +23,10 @@ pub mod stream;
 pub use consts::{CHUNK_OVERLAP, CHUNK_SIZE, HUGE_FILE_THRESHOLD, MAX_PATTERN_LEN, MAX_UNDO};
 pub use edit::{advance, Doc, EditOp, Eol, Pos, MAX_GROUP_CHARS};
 pub use highlight::{highlight_line, lang_from_path, Lang, LineState, Span, TokenKind};
+pub use indent::{
+    bracket_pair_at, indent_unit, match_bracket, newline_edit, Mask, NewlineEdit,
+    MAX_BRACKET_MATCH_BYTES,
+};
 pub use lines::LineIndex;
 pub use replace::{replace_all, ReplaceError, StreamReplacer};
 pub use search::{find_all, find_before, find_from, SearchOptions};

@@ -5,11 +5,14 @@
 //! `jump.rs` 的断言全部通过，而它的输出从没被画到屏幕上 —— 一层没人走的逻辑
 //! 配上一整套绿的断言，看起来比没写还像做完了。现在面板真的在画，
 //! 而且截图检查器多了一个竖带检查盯着它（横带对「右侧整条没画」毫无意见）。
+//!
+//! 自动缩进与括号匹配同理：逻辑全在 `yi_edit_core::indent`（纯函数、进快闸门），
+//! 这一层只负责消费它的输出。
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use yi_edit_core::{highlight_line, Pos, SearchOptions, TokenKind};
+use yi_edit_core::{highlight_line, indent, Pos, SearchOptions, TokenKind};
 use yi_edit_session::browser::{self, Listing};
 use yi_edit_session::fontpick;
 use yi_edit_session::jump::JumpMap;
@@ -93,6 +96,8 @@ pub struct YiEdit {
     visible_rows: usize,
     /// 下一帧要滚到哪一行。
     scroll_to: Option<usize>,
+    /// 当前光标处的括号与它的配对，每帧算一次。
+    bracket: Option<(Pos, Pos)>,
     ime: ImeAdapter,
     preedit: String,
     close_dialog: bool,
@@ -123,6 +128,7 @@ impl YiEdit {
             first_visible: 0,
             visible_rows: 1,
             scroll_to: None,
+            bracket: None,
             ime: ImeAdapter::default(),
             preedit: String::new(),
             close_dialog: false,
@@ -215,6 +221,7 @@ impl YiEdit {
         self.hit_index = 0;
         self.truncated = false;
         self.preedit.clear();
+        self.bracket = None;
         self.scroll_to = Some(0);
     }
 
@@ -223,6 +230,71 @@ impl YiEdit {
             let _ = self.ed.insert_text(text);
             self.ensure_cursor_visible();
         }
+    }
+
+    /// 回车。缩进规则全在 `indent::newline_edit` 里（纯函数、有断言），
+    /// 这里只负责插入并把光标放到它指定的位置。
+    ///
+    /// 拆开一对括号时插两行，而 `insert_text` 会把光标留在末尾 ——
+    /// 不回调的话用户每次都要再敲一下上箭头，那就不如不做。
+    fn newline_with_indent(&mut self) {
+        if self.ed.is_huge() {
+            return;
+        }
+        let cursor = self.ed.cursor;
+        let line = self.ed.line(cursor.line);
+        let edit = indent::newline_edit(&line, cursor.col);
+        // cursor_offset 包含开头那个 '\n'，减掉它就是新行的缩进长度。
+        let indent_len = edit.cursor_offset.saturating_sub(1);
+        let split = edit.split_pair;
+        let _ = self.ed.insert_text(&edit.insert);
+        if split {
+            let end = self.ed.cursor;
+            self.ed.cursor = Pos::new(end.line.saturating_sub(1), indent_len);
+            self.ed.anchor = None;
+        }
+        self.ed.commit_undo_group();
+        self.ensure_cursor_visible();
+    }
+
+    /// 行首偏移 -> 全文字节偏移（行分隔符按 `\n` 算）。
+    fn offset_of(lines: &[String], p: Pos) -> usize {
+        let mut off = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            if i == p.line {
+                return off + p.col.min(line.len());
+            }
+            off += line.len() + 1;
+        }
+        off
+    }
+
+    fn pos_of(lines: &[String], off: usize) -> Pos {
+        let mut base = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            let end = base + line.len();
+            if off <= end {
+                return Pos::new(i, off - base);
+            }
+            base = end + 1;
+        }
+        Pos::new(lines.len().saturating_sub(1), 0)
+    }
+
+    /// 光标处的括号与它的配对。
+    ///
+    /// **只对内存模式且不太大的文档算**：匹配要扫全文，而每帧扫几十 MB 不可接受。
+    /// 上限是 `indent::MAX_BRACKET_MATCH_BYTES`，这是一条已知限制，不是失败。
+    fn bracket_pair(&mut self) -> Option<(Pos, Pos)> {
+        if self.ed.is_huge() || self.ed.byte_len() > indent::MAX_BRACKET_MATCH_BYTES {
+            return None;
+        }
+        let lines: Vec<String> = self.ed.doc()?.lines().to_vec();
+        let text = lines.join("\n");
+        let cursor = Self::offset_of(&lines, self.ed.cursor);
+        let mask = indent::Mask::from_text(&text, self.ed.lang);
+        let (here, other) = indent::bracket_pair_at(&text, &mask, cursor)?;
+        Some((Self::pos_of(&lines, here), Self::pos_of(&lines, other)))
     }
 
     fn ensure_cursor_visible(&mut self) {
@@ -435,10 +507,15 @@ impl YiEdit {
             return;
         }
         match key {
-            // 查找框里的 Enter 是「下一个匹配」；编辑区里的 Enter 是换行。
+            // 查找框里的 Enter 是「下一个匹配」；编辑区里的 Enter 是换行（带自动缩进）。
             egui::Key::Enter if !editor_focused => self.goto_hit(!modifiers.shift),
-            egui::Key::Enter => self.insert("\n"),
-            egui::Key::Tab if editor_focused => self.insert("    "),
+            egui::Key::Enter => self.newline_with_indent(),
+            // Tab 与自动缩进共用同一个缩进单位：写死四个空格就有两份真身，
+            // 而两份一漂，Tab 与回车的缩进就对不齐。
+            egui::Key::Tab if editor_focused => {
+                let unit = indent::indent_unit();
+                self.insert(&unit);
+            }
             egui::Key::Backspace if editor_focused => self.backspace(),
             egui::Key::Delete if editor_focused => self.delete_forward(),
             egui::Key::Escape => self.show_find = false,
@@ -679,6 +756,7 @@ impl YiEdit {
         }
         let needle_len = self.search.len();
         let selection = self.ed.selection();
+        let bracket = self.bracket;
         area.show_rows(ui, row_h, total, |ui, rows| {
             self.first_visible = rows.start;
             self.visible_rows = rows.len().max(1);
@@ -710,6 +788,24 @@ impl YiEdit {
                             ),
                             0.0,
                             th::SELECTION,
+                        );
+                    }
+                }
+                // 括号配对。两边都画：只画一边的话用户看不出它到底配到了哪里。
+                if let Some((here, other)) = bracket {
+                    for p in [here, other] {
+                        if p.line != row {
+                            continue;
+                        }
+                        let x1 = Self::x_of(ui, &text, p.col, x);
+                        let x2 = Self::x_of(ui, &text, p.col + 1, x).max(x1 + 2.0);
+                        painter.rect_filled(
+                            egui::Rect::from_min_max(
+                                egui::pos2(x1, rect.min.y),
+                                egui::pos2(x2, rect.max.y),
+                            ),
+                            0.0,
+                            egui::Color32::from_rgba_unmultiplied(10, 132, 255, 96),
                         );
                     }
                 }
@@ -949,6 +1045,8 @@ impl eframe::App for YiEdit {
         let ctx = ui.ctx().clone();
         self.shot.tick(&ctx);
         self.handle_events(&ctx);
+        // 括号配对每帧算一次（且只对不太大的内存文档），结果存起来给编辑区用。
+        self.bracket = self.bracket_pair();
 
         // 各区域的矩形显式算出来：编辑区拿到的是**剩下的全部**高度，
         // 这正是上一轮底部留白那个 bug 的根因。
