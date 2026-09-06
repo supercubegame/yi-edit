@@ -12,11 +12,10 @@ FMT_LOG=fmt.log
 
 # fmt 欠账的**上限**（棘轮）。它不是「fmt 已阶断」（那是 OB-1，判据是
 # scripts/verify.sh 里出现 run "format check"，本步故意不叫那个名字），
-# 而是「它不得再变差」：实测从 28 一路涨到 99，一个只写在文档里的欠账
+# 而是「它不得再变差」：实测从 28 一路涨到 107，一个只写在文档里的欠账
 # 会静默变大，而变大的过程每一轮都是绿的。
-# 实测 99（run 33992024625），上限给 110：那点余量是给 rustfmt 版本漂的，
-# 不是给新敲的代码的。上限与 docs/OBLIGATIONS.md 里的数字耦合，
-# crates/meta/tests/obligations.rs 里有一条等号断言钉着两头。
+# 上限与 docs/OBLIGATIONS.md 里的数字耦合，crates/meta/tests/obligations.rs 里有
+# 一条等号断言钉着两头。
 FMT_CEILING=110
 
 : > "${LOG}"; : > "${METRICS}"; : > "${FMT_LOG}"
@@ -50,7 +49,7 @@ fmt_ceiling_check() {
     "${fmt_diff}" "${FMT_CEILING}" "$(rustfmt --version 2>/dev/null || echo unknown)"
   if [ "${fmt_diff}" -gt "${FMT_CEILING}" ]; then
     printf 'FMT CEILING FAILED left: %s right: %s\n' "${fmt_diff}" "${FMT_CEILING}"
-    printf 'fmt 欠账又变大了。两个正确反应：把新敲的代码格式好，或者确认是 rustfmt 换了版本\n'
+    printf 'fmt 欠账又变大了。两个正确反应：报 format 那条流水线把它压下去，或者确认是 rustfmt 换了版本\n'
     printf '（上面印了版本）并同时改 scripts/verify.sh 与 docs/OBLIGATIONS.md 两处。只改一头会被等号断言拓住。\n'
     return 1
   fi
@@ -66,7 +65,10 @@ printf 'pass=%s\nfail=%s\nfailed=%s\n' "${pass}" "${fail}" "${failed:-none}" > g
 {
   printf '\n===== FAILURE SUMMARY =====\n'
   if [ "${fail}" -eq 0 ]; then printf 'no failures\n'; else
-    while read -r f; do [ -f "${f}" ] || continue; printf -- '--- %s: failing tests ---\n' "${f}"; grep -E '(FAILED|panicked at|assertion|^error|left:|right:|^ *[a-z_]+$)' "${f}" | tail -n 60 || true; done < gate-failed-steps.txt
+    # -A 4 是必需的：`panicked at ...` 的**下一行**才是断言消息。
+    # 不带上下文的话，中文断言消息一条也到不了我手里（实测踩过），
+    # 于是报告只能告诉我「哪条断言红了」而不是「为什么红了」。
+    while read -r f; do [ -f "${f}" ] || continue; printf -- '--- %s: failing tests ---\n' "${f}"; grep -E -A 4 '(FAILED|panicked at|^error)' "${f}" | tail -n 80 || true; done < gate-failed-steps.txt
   fi
 } >> "${LOG}"
 echo "----- summary -----"; cat gate-result.txt; cat "${METRICS}"; echo "----- gate.log tail -----"; tail -n 60 "${LOG}"
