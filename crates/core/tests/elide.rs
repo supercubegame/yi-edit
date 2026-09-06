@@ -16,7 +16,7 @@ const CJK_PATH: &str = "D:\\\u9879\u76ee\\\u6d4b\u8bd5\u76ee\u5f55\\\u4e2d\u6587
 
 #[test]
 fn wide_characters_really_count_as_two_columns() {
-    for c in ['\u4e2d', '\u6587', '\u3042', '\uff21', '\ud55c'] {
+    for c in ['\u4e2d', '\u6587', '\u3042', '\uff21', '\u{d55c}'] {
         assert_eq!(char_columns(c), 2, "{c} 没被当成宽字符");
     }
     for c in ['a', 'Z', '0', '/', '\\', '.', '-', ' ', ELLIPSIS] {
