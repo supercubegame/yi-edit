@@ -1,8 +1,0 @@
-rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
-cargo 1.98.0 (797e8a9bc 2026-08-05)
-fmt_diff_before=0
-fmt_diff_after=0
-changed_files=2
- fmt-before.txt | 1687 --------------------------------------------------------
- fmt-run.txt    |   24 +-
- 2 files changed, 2 insertions(+), 1709 deletions(-)
