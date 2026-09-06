@@ -18,7 +18,11 @@ impl Tmp {
         p
     }
 }
-impl Drop for Tmp { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+impl Drop for Tmp {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
 
 #[test]
 fn normal_close_refuses_dirty_but_explicit_discard_closes() {

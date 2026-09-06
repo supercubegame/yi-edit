@@ -32,7 +32,9 @@ impl Tab {
         Self { title, editor }
     }
 
-    pub fn is_dirty(&self) -> bool { self.editor.is_dirty() }
+    pub fn is_dirty(&self) -> bool {
+        self.editor.is_dirty()
+    }
 }
 
 pub struct Workspace {
@@ -42,22 +44,37 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new() -> Self {
-        Self { tabs: vec![Tab::from_editor(Editor::empty(), "未命名")], active: 0 }
+        Self {
+            tabs: vec![Tab::from_editor(Editor::empty(), "未命名")],
+            active: 0,
+        }
     }
 
-    pub fn tabs(&self) -> &[Tab] { &self.tabs }
-    pub fn active_index(&self) -> usize { self.active }
-    pub fn active(&self) -> &Tab { &self.tabs[self.active] }
-    pub fn active_mut(&mut self) -> &mut Tab { &mut self.tabs[self.active] }
+    pub fn tabs(&self) -> &[Tab] {
+        &self.tabs
+    }
+    pub fn active_index(&self) -> usize {
+        self.active
+    }
+    pub fn active(&self) -> &Tab {
+        &self.tabs[self.active]
+    }
+    pub fn active_mut(&mut self) -> &mut Tab {
+        &mut self.tabs[self.active]
+    }
 
     pub fn open(&mut self, path: &Path) -> io::Result<usize> {
-        if let Some((i, _)) = self.tabs.iter().enumerate().find(|(_, tab)| {
-            tab.editor.path.as_deref() == Some(path)
-        }) {
+        if let Some((i, _)) = self
+            .tabs
+            .iter()
+            .enumerate()
+            .find(|(_, tab)| tab.editor.path.as_deref() == Some(path))
+        {
             self.active = i;
             return Ok(i);
         }
-        self.tabs.push(Tab::from_editor(Editor::open(path)?, "未命名"));
+        self.tabs
+            .push(Tab::from_editor(Editor::open(path)?, "未命名"));
         self.active = self.tabs.len() - 1;
         Ok(self.active)
     }
@@ -69,24 +86,37 @@ impl Workspace {
     }
 
     pub fn activate(&mut self, index: usize) -> bool {
-        if index >= self.tabs.len() { return false; }
+        if index >= self.tabs.len() {
+            return false;
+        }
         self.active = index;
         true
     }
 
     fn remove_at(&mut self, index: usize) -> CloseDecision {
-        if index >= self.tabs.len() { return CloseDecision::InvalidIndex; }
+        if index >= self.tabs.len() {
+            return CloseDecision::InvalidIndex;
+        }
         self.tabs.remove(index);
-        if self.tabs.is_empty() { self.tabs.push(Tab::from_editor(Editor::empty(), "未命名")); }
-        if self.active > index { self.active -= 1; }
-        else if self.active >= self.tabs.len() { self.active = self.tabs.len() - 1; }
+        if self.tabs.is_empty() {
+            self.tabs.push(Tab::from_editor(Editor::empty(), "未命名"));
+        }
+        if self.active > index {
+            self.active -= 1;
+        } else if self.active >= self.tabs.len() {
+            self.active = self.tabs.len() - 1;
+        }
         CloseDecision::Closed
     }
 
     /// 普通关闭：脏 tab 必须先走 UI 的保存/放弃/取消选择，不能静默丢内容。
     pub fn close(&mut self, index: usize) -> CloseDecision {
-        if index >= self.tabs.len() { return CloseDecision::InvalidIndex; }
-        if self.tabs[index].is_dirty() { return CloseDecision::RefusedDirty; }
+        if index >= self.tabs.len() {
+            return CloseDecision::InvalidIndex;
+        }
+        if self.tabs[index].is_dirty() {
+            return CloseDecision::RefusedDirty;
+        }
         self.remove_at(index)
     }
 
@@ -95,14 +125,23 @@ impl Workspace {
         self.remove_at(index)
     }
 
-    pub fn close_active(&mut self) -> CloseDecision { self.close(self.active) }
-    pub fn discard_close_active(&mut self) -> CloseDecision { self.discard_close(self.active) }
+    pub fn close_active(&mut self) -> CloseDecision {
+        self.close(self.active)
+    }
+    pub fn discard_close_active(&mut self) -> CloseDecision {
+        self.discard_close(self.active)
+    }
 
     pub fn paths(&self) -> Vec<Option<PathBuf>> {
-        self.tabs.iter().map(|tab| tab.editor.path.clone()).collect()
+        self.tabs
+            .iter()
+            .map(|tab| tab.editor.path.clone())
+            .collect()
     }
 }
 
 impl Default for Workspace {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
