@@ -13,7 +13,10 @@ use yi_edit_core::Lang;
 #[test]
 fn the_indent_unit_is_the_only_source_of_truth() {
     assert_eq!(indent_unit().len(), indent_width());
-    assert!(indent_unit().chars().all(|c| c == ' '), "缩进单位里有非空格字符");
+    assert!(
+        indent_unit().chars().all(|c| c == ' '),
+        "缩进单位里有非空格字符"
+    );
     assert!(indent_width() >= 2, "缩进小于两格，胁层根本看不出来");
     assert!(indent_width() <= 8, "缩进大于八格，几层嵌套就顶到右边了");
 }
@@ -60,7 +63,10 @@ fn an_open_bracket_deepens_by_one_unit() {
     assert!(!e.split_pair, "后面没有配对的闭括号，不应该拆成三行");
     // 开括号后面还有空白也算：人真的会在 `{ ` 后面回车。
     let spaced = "    fn f() {   ";
-    assert_eq!(newline_edit(spaced, spaced.len()).insert, format!("\n    {unit}"));
+    assert_eq!(
+        newline_edit(spaced, spaced.len()).insert,
+        format!("\n    {unit}")
+    );
 }
 
 /// 在 `{}` 中间回车：插两行，而光标停在中间那行。
@@ -104,7 +110,10 @@ fn a_cursor_inside_the_indent_does_not_invent_extra_indent() {
 #[test]
 fn multibyte_lines_do_not_panic_and_columns_get_clamped() {
     let line = "    let s = \"中文字串\"; // 中文注释";
-    assert!(line.len() > line.chars().count(), "语料全是单字节，这条在测空气");
+    assert!(
+        line.len() > line.chars().count(),
+        "语料全是单字节，这条在测空气"
+    );
     for col in 0..line.len() + 5 {
         let e = newline_edit(line, col);
         assert!(e.insert.starts_with('\n'));
@@ -159,7 +168,11 @@ fn nesting_picks_the_right_partner_not_the_nearest_one() {
 fn brackets_inside_strings_and_comments_do_not_count() {
     let text = "fn f() {\n    let s = \"(\"; // )\n}\n";
     let mask = mask_of(text);
-    assert!(mask.span_count() >= 2, "屏蔽区只有 {} 个，高亮器没认出字符串与注释", mask.span_count());
+    assert!(
+        mask.span_count() >= 2,
+        "屏蔽区只有 {} 个，高亮器没认出字符串与注释",
+        mask.span_count()
+    );
 
     let quoted = text.find("\"(").expect("有引号里的括号") + 1;
     assert_eq!(
@@ -168,15 +181,26 @@ fn brackets_inside_strings_and_comments_do_not_count() {
         "引号里的开括号参与了匹配，它后面整个文件的配对都会错位"
     );
     let commented = text.rfind(')').expect("有注释里的括号");
-    assert_eq!(match_bracket(text, &mask, commented), None, "注释里的括号参与了匹配");
+    assert_eq!(
+        match_bracket(text, &mask, commented),
+        None,
+        "注释里的括号参与了匹配"
+    );
     // 花括号仍然要能配对：屏蔽不能把真的括号也吃掉。
     let brace = text.find('{').expect("有花括号");
-    assert_eq!(match_bracket(text, &mask, brace), Some(text.rfind('}').unwrap()));
+    assert_eq!(
+        match_bracket(text, &mask, brace),
+        Some(text.rfind('}').unwrap())
+    );
 
     // 对照侧：同一个形状，去掉引号与注释。
     let bare = "fn f() {\n    let s = ( ) ;\n}\n";
     let bare_mask = mask_of(bare);
-    assert_eq!(bare_mask.span_count(), 0, "这段里没有字符串与注释，屏蔽区应该是空的");
+    assert_eq!(
+        bare_mask.span_count(),
+        0,
+        "这段里没有字符串与注释，屏蔽区应该是空的"
+    );
     let open = bare.find('(').expect("有开括号");
     assert_eq!(
         match_bracket(bare, &bare_mask, open),
@@ -189,9 +213,17 @@ fn brackets_inside_strings_and_comments_do_not_count() {
 fn unbalanced_and_non_bracket_positions_are_none() {
     let text = "fn f( {\n";
     let mask = mask_of(text);
-    assert_eq!(match_bracket(text, &mask, text.find('(').unwrap()), None, "未闭合却找到了配对");
+    assert_eq!(
+        match_bracket(text, &mask, text.find('(').unwrap()),
+        None,
+        "未闭合却找到了配对"
+    );
     assert_eq!(match_bracket(text, &mask, 0), None, "非括号位置返回了配对");
-    assert_eq!(match_bracket(text, &mask, text.len()), None, "越界位置没返回 None");
+    assert_eq!(
+        match_bracket(text, &mask, text.len()),
+        None,
+        "越界位置没返回 None"
+    );
     assert_eq!(match_bracket("", &Mask::default(), 0), None);
 }
 
@@ -202,8 +234,16 @@ fn the_pair_is_found_from_either_side_of_the_cursor() {
     let mask = mask_of(text);
     let open = 1usize;
     let close = 3usize;
-    assert_eq!(bracket_pair_at(text, &mask, open), Some((open, close)), "光标在开括号上");
-    assert_eq!(bracket_pair_at(text, &mask, close), Some((close, open)), "光标在闭括号上");
+    assert_eq!(
+        bracket_pair_at(text, &mask, open),
+        Some((open, close)),
+        "光标在开括号上"
+    );
+    assert_eq!(
+        bracket_pair_at(text, &mask, close),
+        Some((close, open)),
+        "光标在闭括号上"
+    );
     assert_eq!(
         bracket_pair_at(text, &mask, close + 1),
         Some((close, open)),
@@ -211,8 +251,14 @@ fn the_pair_is_found_from_either_side_of_the_cursor() {
     );
     assert_eq!(bracket_pair_at(text, &mask, 0), None, "无括号处返回了配对");
     // 沉默截断的反面：上限必须大到能装下真实文件，但又不能大到每帧扫几十 MB。
-    assert!(MAX_BRACKET_MATCH_BYTES >= 64 * 1024, "上限太小，普通源文件都用不上");
-    assert!(MAX_BRACKET_MATCH_BYTES <= 8 * 1024 * 1024, "上限太大，每帧扫一遍会卡");
+    assert!(
+        MAX_BRACKET_MATCH_BYTES >= 64 * 1024,
+        "上限太小，普通源文件都用不上"
+    );
+    assert!(
+        MAX_BRACKET_MATCH_BYTES <= 8 * 1024 * 1024,
+        "上限太大，每帧扫一遍会卡"
+    );
 }
 
 /// 屏蔽区的二分查找要与朴素遍历结果一致。
@@ -229,7 +275,10 @@ fn the_mask_lookup_agrees_with_a_naive_scan() {
             inside += 1;
         }
     }
-    assert!(inside > 0, "一个字节都不在屏蔽区里，那下面那些断言都在测空气");
+    assert!(
+        inside > 0,
+        "一个字节都不在屏蔽区里，那下面那些断言都在测空气"
+    );
     assert!(inside < text.len(), "整份文本都被屏蔽了，匹配永远返回 None");
     // 真括号仍然可匹配，屏蔽里的不行。
     let real = text.find("(1").expect("有真括号");

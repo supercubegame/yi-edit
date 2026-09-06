@@ -79,10 +79,7 @@ fn bracket_matching_has_an_explicit_size_limit() {
         code.contains("MAX_BRACKET_MATCH_BYTES"),
         "括号匹配没有任何尺寸上限"
     );
-    assert!(
-        code.contains("is_huge()"),
-        "大文件只读模式下没有跳过匹配"
-    );
+    assert!(code.contains("is_huge()"), "大文件只读模式下没有跳过匹配");
     let core = meta::read("crates/core/src/indent.rs");
     assert!(
         meta::hits_in_code(&core, "MAX_BRACKET_MATCH_BYTES")
@@ -96,7 +93,10 @@ fn bracket_matching_has_an_explicit_size_limit() {
 /// 只验「引号里的括号不算」的话，一个永远返回 None 的实现也能完美交差。
 #[test]
 fn the_indent_layer_has_tests_including_the_control_experiment() {
-    assert!(meta::exists("crates/core/tests/indent.rs"), "新模块没有测试文件");
+    assert!(
+        meta::exists("crates/core/tests/indent.rs"),
+        "新模块没有测试文件"
+    );
     let tests = meta::read("crates/core/tests/indent.rs");
     assert!(
         tests.contains("brackets_inside_strings_and_comments_do_not_count"),
