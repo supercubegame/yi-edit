@@ -34,8 +34,7 @@ fn sidebar_uses_column_budgeted_elision_and_hover_preserves_information() {
         );
     }
     assert!(
-        code.contains("elide::elide_path(&full_dir")
-            && code.contains("elide::elide_path(&full"),
+        code.contains("elide::elide_path(&full_dir") && code.contains("elide::elide_path(&full"),
         "目录路径与条目名没有都走截短"
     );
     // 路径预算必须量自字体，而不是再拍一个字符数。
@@ -54,7 +53,10 @@ fn sidebar_uses_column_budgeted_elision_and_hover_preserves_information() {
 fn core_elide_module_is_tested_and_exported() {
     let lib = meta::read("crates/core/src/lib.rs");
     assert!(lib.contains("pub mod elide"), "elide 模块没进入 core");
-    assert!(meta::exists("crates/core/tests/elide.rs"), "elide 没有测试文件");
+    assert!(
+        meta::exists("crates/core/tests/elide.rs"),
+        "elide 没有测试文件"
+    );
     let tests = meta::read("crates/core/tests/elide.rs");
     for needle in [
         "the_column_budget_is_never_exceeded",
