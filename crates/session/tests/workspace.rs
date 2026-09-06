@@ -12,8 +12,8 @@ use yi_edit_session::workspace::{CloseDecision, Workspace};
 struct Tmp(PathBuf);
 
 impl Tmp {
-    fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("yi-workspace-{}", std::process::id()));
+    fn new(tag: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("yi-workspace-{}-{tag}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("建临时目录");
         Self(dir)
@@ -44,7 +44,7 @@ fn new_workspace_starts_with_one_clean_untitled_tab() {
 
 #[test]
 fn opening_the_same_path_twice_activates_instead_of_duplicating() {
-    let t = Tmp::new();
+    let t = Tmp::new("duplicate");
     let a = t.file("a.rs", "fn a() {}\n");
     let mut ws = Workspace::new();
     let first = ws.open(&a).expect("第一次打开");
@@ -56,7 +56,7 @@ fn opening_the_same_path_twice_activates_instead_of_duplicating() {
 
 #[test]
 fn active_switch_and_close_keep_the_remaining_tab_active() {
-    let t = Tmp::new();
+    let t = Tmp::new("switch");
     let a = t.file("a.rs", "a\n");
     let b = t.file("b.rs", "b\n");
     let mut ws = Workspace::new();
@@ -72,7 +72,7 @@ fn active_switch_and_close_keep_the_remaining_tab_active() {
 
 #[test]
 fn dirty_tab_cannot_be_closed_silently() {
-    let t = Tmp::new();
+    let t = Tmp::new("dirty");
     let a = t.file("a.rs", "fn a() {}\n");
     let mut ws = Workspace::new();
     ws.open(&a).expect("打开");
@@ -93,7 +93,7 @@ fn closing_the_last_tab_leaves_a_clean_untitled_tab() {
 
 #[test]
 fn paths_are_a_snapshot_not_a_mutable_alias() {
-    let t = Tmp::new();
+    let t = Tmp::new("paths");
     let a = t.file("a.rs", "a\n");
     let mut ws = Workspace::new();
     ws.open(&a).expect("打开");
