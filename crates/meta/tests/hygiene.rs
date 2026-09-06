@@ -1,9 +1,9 @@
 //! 仓库根目录也是一张登记表。
 //!
 //! 为什么需要它：格式化流水线的第一版用了 `git add` 的全量形式，于是把**自己的日志**
-//! 提交进了仓库（四个 txt）。那一轮所有闸门全绿：仓库变脏不会让任何东西报错。
+//! 提交进了仓库（四个 txt）。那一轮所有闸门全绿：仓库变脔不会让任何东西报错。
 //!
-//! 而后果不只是脏：那几份日志每次运行都不一样，于是「零改动就不提交」那一层循环终止
+//! 而后果不只是脔：那几份日志每次运行都不一样，于是「零改动就不提交」那一层循环终止
 //! **直接失效**了 —— 每次推送都会多一个垃圾提交，而它看起来很像「流水线在正常工作」。
 //!
 //! **忽略名单不在这里再写一份。** 第一版手写了一张产物表，第一次跑就假红：
@@ -118,11 +118,38 @@ fn the_repo_root_has_exactly_the_registered_entries() {
     );
 }
 
+/// YAML 剥注释的**双向自证**。夹具是手搓的，不看任何真实文件。
+///
+/// 为什么不看真实文件：第一版的自证写成「要求 format.yml 的注释里存在字串
+/// `add -A`」，于是我把那句注释改得更易读（改成「全量 git add」）之后，
+/// 一条完全正确的代码把闸门弄红了 —— 实测就这么红了一轮。
+/// **守卫不能靠我自己的散文里的字串：那种守卫只会在我改措词时假红，
+/// 而假红会逐人去改产品迎合尺子。** 夹具包在测试里，它永远不会因文档措词而变。
+#[test]
+fn the_yaml_stripper_tells_comments_from_real_code() {
+    let commented = "# 第一版用的是 git add -A，把日志都提交进了仓库\njobs:\n  fmt:\n";
+    assert!(
+        !meta::yaml_code_contains(commented, "add -A"),
+        "注释里的字面量被当成了真用法（误报），一条已经修好的规矩会被判成还坏着"
+    );
+    let real = "jobs:\n  fmt:\n    steps:\n      - run: git add -A\n";
+    assert!(
+        meta::yaml_code_contains(real, "add -A"),
+        "真正的用法没被拓到（漏报），这一侧不能红就等于没有扫描器"
+    );
+    // 行尾注释不剥：`uses: foo@<sha> # v1` 这种形状很常见，误剥会把
+    // 那一行的 SHA 检查废掉（gate.rs 里那条钉 40 位 SHA 的断言）。
+    let inline = "      uses: actions/checkout@abc123 # v7.0.1\n";
+    assert!(
+        meta::yaml_code_contains(inline, "actions/checkout@abc123"),
+        "行尾注释被误剥了，这会把钉 SHA 那条断言废掉"
+    );
+}
+
 /// 格式化流水线只能提交 .rs，而且临时文件要写在仓库外。
 /// 两条都是承重的：它们各自就能防住那个已经发生过的事故。
 ///
-/// **负向那几条必须先剥 YAML 注释：** 我在注释里写下了事故经过（包括那个全量
-/// `git add` 的写法），于是一条已经修好的规矩被判成还坏着 —— 实测就这么红了一轮。
+/// 负向那几条先剥 YAML 注释，而剥离器本身由上面那条夹具自证（不看真实文件）。
 #[test]
 fn the_formatter_stages_only_rust_files_and_keeps_scratch_outside_the_repo() {
     let src = meta::read(".github/workflows/format.yml");
@@ -143,20 +170,24 @@ fn the_formatter_stages_only_rust_files_and_keeps_scratch_outside_the_repo() {
         meta::yaml_code_contains(&src, ".rs$"),
         "没有那条拒绝非 .rs 的负向守卫"
     );
+    // 临时文件必须写在仓库外。`$RUNNER_TEMP` 是运行时环境变量，
+    // 而 `runner.temp` 表达式在 job 级 env 里拿不到上下文 —— 那一版整份工作流
+    // 无法加载、一次也没跑，而那与「跑了但没东西要改」在面板上一模一样。
+    let code = meta::strip_yaml_comments(&src);
     assert!(
-        meta::yaml_code_contains(&src, "runner.temp"),
+        code.contains("RUNNER_TEMP") || code.contains("runner.temp"),
         "临时文件还写在仓库里，一个写歪的 git add 就能把它们提交进去"
     );
-
-    // 剥离器自证：剥完之后还看得见真东西。剥成空字串的话，上面那几条负向断言
-    // 全部免费通过，而正向那几条会全红 —— 后者至少会喊，但不能只靠它。
-    let code = meta::strip_yaml_comments(&src);
+    // 剥离器在真实文件上也要剩下真东西：剥成空字串的话，上面那几条负向断言
+    // 全部免费通过（正向那几条会全红，但不能只靠它们喊）。
     assert!(
         code.contains("jobs:") && code.contains("runs-on:"),
         "剥完 YAML 注释之后看不到任何结构，剥离器自己坏了"
     );
     assert!(
-        src.contains("add -A"),
-        "事故经过从注释里消失了；那么上面那条剥注释的断言也就不再验得到任何东西"
+        code.len() * 5 >= src.len(),
+        "剥完只剩 {}/{} 字节，剥离器吃多了",
+        code.len(),
+        src.len()
     );
 }
